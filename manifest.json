@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "MAL People Page Enhancer",
+  "version": "1.0.0",
+  "description": "Enhances Voice Acting Roles on MyAnimeList People pages.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "mal-people-enhancer@deathburst",
+	  "data_collection_permissions": {
+	    "required": ["none"]
+	  }
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://myanimelist.net/people/*"
+      ],
+      "js": [
+        "content.js"
+      ]
+    }
+  ]
+}
