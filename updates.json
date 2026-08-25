@@ -1,0 +1,12 @@
+{
+  "addons": {
+    "mal-people-enhancer@deathburst": {
+      "updates": [
+        {
+          "version": "1.1.0",
+          "update_link": "https://deathburst.github.io/MAL_People_Enhancer_FFaddon/mal-people-page-enhancer-1.1.0.xpi"
+        }
+      ]
+    }
+  }
+}
