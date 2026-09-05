@@ -1532,7 +1532,101 @@ function applyRoleTypeState(
   }
 }
 
-function injectEnhancedTable(groupedRoles) {
+
+function dateSortToDate(dateSort) {
+  const raw = String(dateSort).padStart(8, "0");
+
+  const year = Number(raw.slice(0, 4));
+  const month = Number(raw.slice(4, 6)) || 1;
+  const day = Number(raw.slice(6, 8)) || 1;
+
+  return new Date(year, month - 1, day);
+}
+
+
+function formatDuration(startDateSort, endDateSort) {
+  const start = dateSortToDate(startDateSort);
+  const end = dateSortToDate(endDateSort);
+
+  let months =
+    (end.getFullYear() - start.getFullYear()) * 12 +
+    end.getMonth() -
+    start.getMonth();
+
+  if (end.getDate() < start.getDate()) {
+    months--;
+  }
+
+  months = Math.max(0, months);
+
+  const years = Math.floor(months / 12);
+  const remainingMonths = months % 12;
+
+  if (years === 0) {
+    return `${remainingMonths} months`;
+  }
+
+/*   if (remainingMonths === 0) {
+    return `${years} years`;
+  }
+
+  return `${years} years, ${remainingMonths} months`;
+ */
+  if (remainingMonths < 7) {
+    return `${years} years`;
+  }
+  return `${years+1} years`;
+ 
+ }
+
+
+function isWithinLastYear(dateSort) {
+  const appearanceDate = dateSortToDate(dateSort);
+  const oneYearAgo = new Date();
+
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
+  return appearanceDate >= oneYearAgo;
+}
+
+
+function computeCareerMilestones(parsedRows) {
+  if (parsedRows.length === 0) {
+    throw new GroupingError(
+      "Cannot compute career milestones without appearances."
+    );
+  }
+
+  const chronologicalRows = [...parsedRows].sort(
+    compareAppearancesChronologically
+  );
+
+  const firstRole = chronologicalRows[0];
+  const lastRole = chronologicalRows.at(-1);
+
+  const firstMainRole = chronologicalRows.find(
+    appearance => appearance.roleType === "Main"
+  );
+
+  return {
+    firstRole,
+    firstMainRole,
+    lastRole,
+    timeToFirstMain: firstMainRole
+      ? formatDuration(
+          firstRole.dateSort,
+          firstMainRole.dateSort
+        )
+      : null,
+    careerDuration: formatDuration(
+      firstRole.dateSort,
+      lastRole.dateSort
+    ),
+    ongoing: isWithinLastYear(lastRole.dateSort)
+  };
+}
+
+function injectEnhancedTable(groupedRoles, parsedRows) {
   const originalTable = findVoiceActingTable();
 
   // Prevent duplicate injection when the content script is rerun.
@@ -1560,7 +1654,37 @@ function injectEnhancedTable(groupedRoles) {
     `→ ${classificationCounts.Main} Main / ` +
     `${classificationCounts.Mixed} Mixed / ` +
     `${classificationCounts.Supporting} Supporting`;
-		
+
+    const milestones = computeCareerMilestones(parsedRows);
+    
+    const milestoneSummary = document.createElement("p");
+    
+    const firstRoleText =
+      formatAppearancePeriod(milestones.firstRole);
+    
+    const lastRoleText =
+      formatAppearancePeriod(milestones.lastRole);
+    
+    const firstMainText = milestones.firstMainRole
+      ? (
+          `${formatAppearancePeriod(milestones.firstMainRole)} ` +
+          `after ${milestones.timeToFirstMain}`
+        )
+      : "none";
+    
+    milestoneSummary.textContent =
+      `First role: ${firstRoleText} · ` +
+      `First Main role: ${firstMainText} · ` +
+      `Last role: ${lastRoleText} · ` +
+      `Career span: ${milestones.careerDuration}` +
+      (milestones.ongoing ? " · ongoing" : "");
+	  
+	milestoneSummary.replaceChildren(
+	  `Career: ${firstRoleText} to ${lastRoleText} (${milestones.careerDuration}${(milestones.ongoing ? ", ongoing" : "")})`,
+	  document.createElement("br"),
+	  `First Main role: ${firstMainText}`,
+	  )
+
   const table = document.createElement("table");
   table.className = "mal-enhanced-table";
 
@@ -1734,7 +1858,7 @@ function injectEnhancedTable(groupedRoles) {
     table.append(group);
   });
 
-  container.append(heading, summary, table);
+  container.append(heading, summary, milestoneSummary, table);
 
   originalTable.parentNode.insertBefore(
     container,
@@ -2422,8 +2546,8 @@ try {
     const parsedRows = parseRoles();
     const groupedRoles = groupRoles(parsedRows);
 
-    injectEnhancedTable(groupedRoles);
-
+    injectEnhancedTable(groupedRoles, parsedRows);
+	
     console.log(
       `MAL People Page Enhancer injected ` +
       `${groupedRoles.length} grouped desktop roles from ` +
