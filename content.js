@@ -680,15 +680,17 @@ function validateMobileCharacterMetadata(
 }
 
 function compareMobileGroupedRoles(left, right) {
-  const appearanceDifference =
-    right.appearances.length -
-    left.appearances.length;
+  const favoriteDifference =
+    right.favorites - left.favorites;
 
-  if (appearanceDifference !== 0) {
-    return appearanceDifference;
+  if (favoriteDifference !== 0) {
+    return favoriteDifference;
   }
 
-  return right.favorites - left.favorites;
+  return (
+    right.appearances.length -
+    left.appearances.length
+  );
 }
 
 function validateCharacterMetadata(groupedRole, row) {
@@ -1934,14 +1936,18 @@ function sortEnhancedTable(
 
 
 function injectMobileRoleList(groupedRoles) {
+  const originalHeading = document.querySelector(
+    'h2[data-id="roles"]'
+  );
+  
   const originalRoles = document.querySelector("#roles");
-
-  if (!originalRoles) {
+  
+  if (!originalHeading || !originalRoles) {
     throw new ParseError(
       "Could not find the mobile Voice Acting Roles section."
     );
   }
-
+  
   document
     .querySelector("#mal-mobile-enhanced-roles")
     ?.remove();
@@ -1949,11 +1955,44 @@ function injectMobileRoleList(groupedRoles) {
   const container = document.createElement("div");
   container.id = "mal-mobile-enhanced-roles";
 
+  const heading = document.createElement("h2");
+  // A sticky element needs an opaque background.
+  // Since we want MAL’s actual current theme color,
+  // set it from JavaScript rather than guessing.
+  const originalHeadingStyle =
+    window.getComputedStyle(originalHeading);
+  
+  heading.style.backgroundColor =
+    originalHeadingStyle.backgroundColor;
+  
+  heading.style.color =
+    originalHeadingStyle.color;
+  // If MAL’s heading background is transparent, use page background instead:
+  if (
+    originalHeadingStyle.backgroundColor ===
+    "rgba(0, 0, 0, 0)"
+  ) {
+    heading.style.backgroundColor =
+      window.getComputedStyle(document.body)
+        .backgroundColor;
+  }
+
+  heading.className =
+    "header3 btn-toggle-detail pt16 pb16 " +
+    "mal-mobile-enhanced-header open";
+  heading.textContent = "Voice Acting Roles (enhanced)";
+  heading.tabIndex = 0;
+  heading.setAttribute("role", "button");
+  heading.setAttribute("aria-expanded", "true");
+  
+  const content = document.createElement("div");
+  content.className = "mal-mobile-enhanced-content";
+  
   const summary = document.createElement("p");
   summary.className = "mal-mobile-summary";
   summary.textContent =
     `${groupedRoles.length} distinct roles`;
-
+  
   const roleList = document.createElement("div");
   roleList.className = "mal-mobile-role-list";
 
@@ -1963,13 +2002,93 @@ function injectMobileRoleList(groupedRoles) {
     );
   }
 
-  container.append(summary, roleList);
-
-  originalRoles.parentNode.insertBefore(
+  content.append(summary, roleList);
+  container.append(heading, content);
+  
+  originalHeading.parentNode.insertBefore(
     container,
-    originalRoles
+    originalHeading
   );
+  
+  const stickySentinel = document.createElement("div");
+  stickySentinel.className = "mal-mobile-sticky-sentinel";
+  
+  container.before(stickySentinel);
+  
+  const siteHeader = document.querySelector("#header");
+  
+  function updateEnhancedHeaderPosition() {
+    const siteHeaderHeight = siteHeader
+      ? siteHeader.getBoundingClientRect().height
+      : 0;
+  
+    const sentinelTop =
+      stickySentinel.getBoundingClientRect().top;
+  
+    const originalHeadingTop =
+      originalHeading.getBoundingClientRect().top;
+    
+    const shouldStick =
+      !content.hidden &&
+      sentinelTop <= siteHeaderHeight &&
+      originalHeadingTop > siteHeaderHeight;
 
+  
+    heading.classList.toggle(
+      "is-stuck",
+      shouldStick
+    );
+  
+    if (shouldStick) {
+      heading.style.top = `${siteHeaderHeight}px`;
+      stickySentinel.style.height =
+        `${heading.getBoundingClientRect().height}px`;
+    } else {
+      heading.style.top = "";
+      stickySentinel.style.height = "0";
+    }
+  }
+
+window.addEventListener(
+  "scroll",
+  updateEnhancedHeaderPosition,
+  { passive: true }
+);
+
+window.addEventListener(
+  "resize",
+  updateEnhancedHeaderPosition
+);
+
+updateEnhancedHeaderPosition();
+  
+  function toggleEnhancedRoles() {
+    const isExpanded =
+      heading.getAttribute("aria-expanded") === "true";
+  
+    content.hidden = isExpanded;
+  
+    heading.setAttribute(
+      "aria-expanded",
+      String(!isExpanded)
+    );
+  
+    heading.classList.toggle("open", !isExpanded);
+	updateEnhancedHeaderPosition();
+  }
+  
+  heading.addEventListener(
+    "click",
+    toggleEnhancedRoles
+  );
+  
+  heading.addEventListener("keydown", event => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      toggleEnhancedRoles();
+    }
+  });
+  
   originalRoles.hidden = true;
 }
 
@@ -2174,6 +2293,20 @@ function injectEnhancedStyles() {
       margin-bottom: 16px;
     }
     
+
+    .mal-mobile-enhanced-header {
+      margin: 0;
+      cursor: pointer;
+    }
+    
+    .mal-mobile-enhanced-header.is-stuck {
+      position: fixed;
+      top: 48px;
+      left: 0;
+      right: 0;
+      z-index: 9998;
+    }	
+	
     .mal-mobile-summary {
       margin: 8px 0;
       font-weight: bold;
@@ -2264,53 +2397,42 @@ function injectEnhancedStyles() {
   document.head.append(style);
 }
 
-// Diagnostic code
+// Main init block
 try {
-
-  const parsedRows = parseMobileRoles();
-  const groupedRoles = groupMobileRoles(parsedRows);
-  
   injectEnhancedStyles();
-  injectMobileRoleList(groupedRoles);
-  
-  console.log(
-    `Injected ${groupedRoles.length} grouped mobile roles ` +
-    `from ${parsedRows.length} appearances.`
-  );
 
-/*   const parsedRows = parseRoles();
-  const groupedRoles = groupRoles(parsedRows);
-
-  injectEnhancedStyles();
-  injectEnhancedTable(groupedRoles);
-
-  console.log(
-    `MAL People Page Enhancer injected ` +
-    `${groupedRoles.length} grouped roles from ` +
-    `${parsedRows.length} appearances.`
+  const isMobileLayout = Boolean(
+    document.querySelector(
+      '#roles .va-slider-container .va-slider-items'
+    )
   );
   
-	console.table(
-	  groupedRoles.map(role => ({
-		character: role.characterName,
-		classification: classifyCharacter(
-		  role.appearances
-		),
-		appearances: role.appearances.length,
-		main: role.appearances.filter(
-		  appearance => appearance.roleType === "Main"
-		).length,
-		supporting: role.appearances.filter(
-		  appearance => appearance.roleType === "Supporting"
-		).length
-	  }))
-	);
- */
-  
+  if (isMobileLayout) {
+    const parsedRows = parseMobileRoles();
+    const groupedRoles = groupMobileRoles(parsedRows);
+
+    injectMobileRoleList(groupedRoles);
+
+    console.log(
+      `MAL People Page Enhancer injected ` +
+      `${groupedRoles.length} grouped mobile roles from ` +
+      `${parsedRows.length} appearances.`
+    );
+  } else {
+    const parsedRows = parseRoles();
+    const groupedRoles = groupRoles(parsedRows);
+
+    injectEnhancedTable(groupedRoles);
+
+    console.log(
+      `MAL People Page Enhancer injected ` +
+      `${groupedRoles.length} grouped desktop roles from ` +
+      `${parsedRows.length} appearances.`
+    );
+  }
 } catch (error) {
   console.error(
     "MAL People Page Enhancer failed:",
     error
   );
 }
-
