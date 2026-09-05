@@ -43,6 +43,180 @@ function parseRoles() {
 }
 
 
+function parseMobileRoles() {
+  const rolesSection = document.querySelector("#roles");
+
+  if (!rolesSection) {
+    throw new ParseError(
+      "Could not find the mobile Voice Acting Roles section."
+    );
+  }
+
+  const roleElements = Array.from(
+    rolesSection.querySelectorAll(".va-slider-items")
+  ).filter(
+    element =>
+      element.querySelectorAll(
+        ":scope > .va-slider-item"
+      ).length === 2
+  );
+
+  if (roleElements.length === 0) {
+    throw new ParseError(
+      "Mobile Voice Acting Roles section contains no recognizable entries."
+    );
+  }
+
+  return roleElements.map((element, index) => {
+    try {
+      return parseMobileRole(element, index);
+    } catch (error) {
+      if (error instanceof ParseError) {
+        throw new ParseError(
+          `Unable to parse mobile role entry ${index + 1}: ` +
+          error.message
+        );
+      }
+
+      throw error;
+    }
+  });
+}
+
+
+function parseMobileRole(roleElement, sourceOrder) {
+  const items = Array.from(roleElement.children).filter(
+    child => child.classList.contains("va-slider-item")
+  );
+
+  if (items.length !== 2) {
+    throw new ParseError(
+      `Expected 2 mobile role items, found ${items.length}.`
+    );
+  }
+
+  const [characterItem, entryItem] = items;
+
+  const characterLink = characterItem.querySelector(
+    'a.img-link[href*="/character/"]'
+  );
+
+  if (!characterLink) {
+    throw new ParseError("Character link not found.");
+  }
+
+  const characterUrl = requiredUrl(
+    characterLink,
+    "character"
+  );
+
+  const characterNameElement = characterItem.querySelector(
+    "h3.va-slider-item__title"
+  );
+
+  if (!characterNameElement) {
+    throw new ParseError("Character name not found.");
+  }
+
+  const characterName =
+    characterNameElement.textContent.trim();
+
+  if (!characterName) {
+    throw new ParseError("Character name is empty.");
+  }
+
+  const characterImageUrl =
+    extractMobileCharacterImageUrl(characterItem);
+
+  const favorites =
+    extractMobileFavorites(characterItem);
+
+  const entryLink = entryItem.querySelector(
+    'a.va-slider-item__title[href*="/anime/"]'
+  );
+
+  if (!entryLink) {
+    throw new ParseError("Anime entry link not found.");
+  }
+
+  const {
+    url: entryUrl,
+    name: entryTitle
+  } = extractUrlName(entryLink, "entry");
+
+  return {
+    characterName,
+    characterUrl,
+    characterImageUrl,
+    favorites,
+
+    entryTitle,
+    entryUrl,
+
+    /*
+     * This records mobile DOM order only. It is alphabetical by
+     * anime title and must not be treated as chronology.
+     */
+    sourceOrder
+  };
+}
+
+
+function extractMobileCharacterImageUrl(characterItem) {
+  const image = characterItem.querySelector(
+    'a.img-link[href*="/character/"] img'
+  );
+
+  if (!image) {
+    throw new ParseError(
+      "Character portrait element not found."
+    );
+  }
+
+  const imageUrl =
+    image.getAttribute("data-src") ||
+    image.getAttribute("src");
+
+  if (!imageUrl || !imageUrl.trim()) {
+    throw new ParseError(
+      "Character portrait has no usable URL."
+    );
+  }
+
+  return new URL(
+    imageUrl,
+    document.baseURI
+  ).href;
+}
+
+
+function extractMobileFavorites(characterItem) {
+  const element = characterItem.querySelector(
+    ".js-favorite-users"
+  );
+
+  if (!element) {
+    throw new ParseError(
+      "Character favorites element not found."
+    );
+  }
+
+  const rawValue = (
+    element.getAttribute("data-users") ||
+    element.textContent
+  )
+    .replaceAll(",", "")
+    .replace(/\D/g, "");
+
+  if (!rawValue) {
+    throw new ParseError(
+      "Character favorites value is invalid."
+    );
+  }
+
+  return Number.parseInt(rawValue, 10);
+}
+
 function findVoiceActingTable() {
   const headings = Array.from(
     document.querySelectorAll("h2, h3")
@@ -423,6 +597,99 @@ function groupRoles(rows) {
   return groupedRoles;
 }
 
+function groupMobileRoles(rows) {
+  const grouped = new Map();
+
+  for (const row of rows) {
+    let groupedRole = grouped.get(row.characterUrl);
+
+    if (!groupedRole) {
+      groupedRole = {
+        characterUrl: row.characterUrl,
+        characterName: row.characterName,
+        characterImageUrl: row.characterImageUrl,
+        favorites: row.favorites,
+        appearances: []
+      };
+
+      grouped.set(row.characterUrl, groupedRole);
+    } else {
+      validateMobileCharacterMetadata(
+        groupedRole,
+        row
+      );
+    }
+
+    groupedRole.appearances.push({
+      characterUrl: row.characterUrl,
+      entryTitle: row.entryTitle,
+      entryUrl: row.entryUrl,
+      sourceOrder: row.sourceOrder
+    });
+  }
+
+  const groupedRoles = Array.from(
+    grouped.values()
+  );
+
+  for (const role of groupedRoles) {
+    role.franchise = detectFranchise(
+      role.appearances,
+      compareMobileAppearances,
+	  false
+    );
+  }
+
+  groupedRoles.sort(compareMobileGroupedRoles);
+
+  return groupedRoles;
+}
+
+function validateMobileCharacterMetadata(
+  groupedRole,
+  row
+) {
+  if (row.characterName !== groupedRole.characterName) {
+    throw new GroupingError(
+      `Inconsistent character names for ` +
+      `${row.characterUrl}: ` +
+      `${JSON.stringify(groupedRole.characterName)} and ` +
+      `${JSON.stringify(row.characterName)}.`
+    );
+  }
+
+  if (row.favorites !== groupedRole.favorites) {
+    throw new GroupingError(
+      `Inconsistent favorite counts for ` +
+      `${row.characterUrl}: ` +
+      `${groupedRole.favorites} and ${row.favorites}.`
+    );
+  }
+
+  if (
+    row.characterImageUrl !==
+    groupedRole.characterImageUrl
+  ) {
+    throw new GroupingError(
+      `Inconsistent character portraits for ` +
+      `${row.characterUrl}: ` +
+      `${JSON.stringify(groupedRole.characterImageUrl)} and ` +
+      `${JSON.stringify(row.characterImageUrl)}.`
+    );
+  }
+}
+
+function compareMobileGroupedRoles(left, right) {
+  const appearanceDifference =
+    right.appearances.length -
+    left.appearances.length;
+
+  if (appearanceDifference !== 0) {
+    return appearanceDifference;
+  }
+
+  return right.favorites - left.favorites;
+}
 
 function validateCharacterMetadata(groupedRole, row) {
   if (row.characterName !== groupedRole.characterName) {
@@ -472,6 +739,9 @@ function compareAppearancesChronologically(left, right) {
   return right.sourceOrder - left.sourceOrder;
 }
 
+function compareMobileAppearances(left, right) {
+  return left.sourceOrder - right.sourceOrder;
+}
 
 function findFirstAppearance(role) {
   if (role.appearances.length === 0) {
@@ -770,19 +1040,24 @@ function findTokenSequenceIndex(titleTokens, candidate) {
 const EXACT_MATCH_BONUS = 2;
 const EARLIEST_APPEARANCE_BONUS = 1;
 
-function bestCandidate(scoredCandidates, appearances) {
+function bestCandidate(
+  scoredCandidates,
+  appearances,
+  appearanceComparator = compareAppearancesChronologically,
+  useEarliestMatchBonus = true
+) {	
   if (appearances.length === 0) {
     throw new GroupingError(
       "Cannot select a franchise name without appearances."
     );
   }
 
-  const chronologicalAppearances = [...appearances].sort(
-    compareAppearancesChronologically
+  const orderedAppearances = [...appearances].sort(
+    appearanceComparator
   );
 
   const fallbackCandidate = tokenizeTitle(
-    chronologicalAppearances[0].entryTitle
+    orderedAppearances[0].entryTitle
   ).map(token => token.normalized);
 
   if (scoredCandidates.length === 0) {
@@ -816,7 +1091,8 @@ function bestCandidate(scoredCandidates, appearances) {
     winner = duelCandidates(
       winner,
       rankedCandidates[index],
-      chronologicalAppearances
+      orderedAppearances,
+      useEarliestMatchBonus
     );
   }
 
@@ -835,8 +1111,9 @@ function compareInitialCandidateRanking(left, right) {
 function duelCandidates(
   currentWinner,
   challenger,
-  chronologicalAppearances
-) {
+  orderedAppearances,
+  useEarliestMatchBonus
+) {	
   const nested = areCandidatesNested(
     currentWinner.candidate,
     challenger.candidate
@@ -846,14 +1123,15 @@ function duelCandidates(
     return duelNestedCandidates(
       currentWinner,
       challenger,
-      chronologicalAppearances
+      orderedAppearances,
+      useEarliestMatchBonus
     );
   }
 
   return duelIndependentCandidates(
     currentWinner,
     challenger,
-    chronologicalAppearances
+    orderedAppearances
   );
 }
 
@@ -896,15 +1174,16 @@ function duelIndependentCandidates(
 function duelNestedCandidates(
   currentWinner,
   challenger,
-  chronologicalAppearances
-) {
+  orderedAppearances,
+  useEarliestMatchBonus
+) {	
   let winnerPoints = 0;
   let challengerPoints = 0;
 
   if (
     candidateExactlyMatchesAnyEntry(
       currentWinner.candidate,
-      chronologicalAppearances
+      orderedAppearances
     )
   ) {
     winnerPoints += EXACT_MATCH_BONUS;
@@ -913,7 +1192,7 @@ function duelNestedCandidates(
   if (
     candidateExactlyMatchesAnyEntry(
       challenger.candidate,
-      chronologicalAppearances
+      orderedAppearances
     )
   ) {
     challengerPoints += EXACT_MATCH_BONUS;
@@ -948,17 +1227,19 @@ function duelNestedCandidates(
     challengerPoints += -tokenDifference;
   }
 
-  const earliestWinners = candidatesMatchingEarliestEntry(
-    [currentWinner, challenger],
-    chronologicalAppearances
-  );
-
-  if (earliestWinners.includes(currentWinner)) {
-    winnerPoints += EARLIEST_APPEARANCE_BONUS;
-  }
-
-  if (earliestWinners.includes(challenger)) {
-    challengerPoints += EARLIEST_APPEARANCE_BONUS;
+  if (useEarliestMatchBonus) {
+    const earliestWinners = candidatesMatchingEarliestEntry(
+      [currentWinner, challenger],
+      orderedAppearances
+    );
+   
+    if (earliestWinners.includes(currentWinner)) {
+      winnerPoints += EARLIEST_APPEARANCE_BONUS;
+    }
+   
+    if (earliestWinners.includes(challenger)) {
+      challengerPoints += EARLIEST_APPEARANCE_BONUS;
+    }
   }
 
   if (winnerPoints > challengerPoints) {
@@ -1126,7 +1407,11 @@ function recoverCandidateFormatting(candidate, titles) {
   );
 }
 
-function detectFranchise(appearances) {
+function detectFranchise(
+  appearances,
+  appearanceComparator = compareAppearancesChronologically,
+  useEarliestMatchBonus = true
+) {
   if (appearances.length === 0) {
     throw new GroupingError(
       "Cannot detect a franchise without appearances."
@@ -1150,7 +1435,9 @@ function detectFranchise(appearances) {
 
   const candidate = bestCandidate(
     scoredCandidates,
-    appearances
+    appearances,
+    appearanceComparator,
+    useEarliestMatchBonus
   );
   
   return recoverCandidateFormatting(
@@ -1646,6 +1933,148 @@ function sortEnhancedTable(
 }
 
 
+function injectMobileRoleList(groupedRoles) {
+  const originalRoles = document.querySelector("#roles");
+
+  if (!originalRoles) {
+    throw new ParseError(
+      "Could not find the mobile Voice Acting Roles section."
+    );
+  }
+
+  document
+    .querySelector("#mal-mobile-enhanced-roles")
+    ?.remove();
+
+  const container = document.createElement("div");
+  container.id = "mal-mobile-enhanced-roles";
+
+  const summary = document.createElement("p");
+  summary.className = "mal-mobile-summary";
+  summary.textContent =
+    `${groupedRoles.length} distinct roles`;
+
+  const roleList = document.createElement("div");
+  roleList.className = "mal-mobile-role-list";
+
+  for (const role of groupedRoles) {
+    roleList.append(
+      renderMobileRoleCard(role)
+    );
+  }
+
+  container.append(summary, roleList);
+
+  originalRoles.parentNode.insertBefore(
+    container,
+    originalRoles
+  );
+
+  originalRoles.hidden = true;
+}
+
+function renderMobileRoleCard(role) {
+  const card = document.createElement("section");
+  card.className = "mal-mobile-role-card";
+
+  const header = document.createElement("div");
+  header.className = "mal-mobile-role-header";
+
+  const portraitLink = document.createElement("a");
+  portraitLink.href = role.characterUrl;
+
+  const portrait = document.createElement("img");
+  portrait.className = "mal-mobile-character-portrait";
+  portrait.src = role.characterImageUrl;
+  portrait.alt = "";
+  portrait.loading = "lazy";
+
+  portraitLink.append(portrait);
+
+  const information = document.createElement("div");
+  information.className = "mal-mobile-role-information";
+
+  const characterLink = document.createElement("a");
+  characterLink.className = "mal-mobile-character-name";
+  characterLink.href = role.characterUrl;
+  characterLink.textContent = role.characterName;
+
+  const metadata = document.createElement("div");
+  metadata.className = "mal-mobile-role-metadata";
+
+  const appearanceCount = role.appearances.length;
+  const appearanceLabel =
+    appearanceCount === 1
+      ? "appearance"
+      : "appearances";
+
+  metadata.textContent =
+    `${role.favorites.toLocaleString()} favorites · ` +
+    `${appearanceCount} ${appearanceLabel}`;
+
+  const franchise = document.createElement("div");
+  franchise.className = "mal-mobile-franchise";
+  franchise.textContent = role.franchise;
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "mal-mobile-entries-toggle";
+  toggle.textContent = "Show entries";
+  toggle.setAttribute("aria-expanded", "false");
+
+  information.append(
+    characterLink,
+    franchise,
+    metadata,
+    toggle
+  );
+
+  header.append(portraitLink, information);
+
+  const entries = document.createElement("div");
+  entries.className = "mal-mobile-entry-list";
+  entries.hidden = true;
+
+  for (const appearance of role.appearances) {
+    entries.append(
+      renderMobileAppearance(appearance)
+    );
+  }
+
+  toggle.addEventListener("click", () => {
+    const isExpanded =
+      toggle.getAttribute("aria-expanded") === "true";
+
+    entries.hidden = isExpanded;
+
+    toggle.setAttribute(
+      "aria-expanded",
+      String(!isExpanded)
+    );
+
+    toggle.textContent = isExpanded
+      ? "Show entries"
+      : "Hide entries";
+  });
+
+  card.append(header, entries);
+
+  return card;
+}
+
+function renderMobileAppearance(appearance) {
+  const line = document.createElement("div");
+  line.className = "mal-mobile-entry";
+
+  const link = document.createElement("a");
+  link.href = appearance.entryUrl;
+  link.textContent = appearance.entryTitle;
+
+  line.append(link);
+
+  return line;
+}
+
 // Styling
 
 function injectEnhancedStyles() {
@@ -1739,6 +2168,97 @@ function injectEnhancedStyles() {
       font-size: 0.9em;
       opacity: 0.75;
     }
+	
+	
+    #mal-mobile-enhanced-roles {
+      margin-bottom: 16px;
+    }
+    
+    .mal-mobile-summary {
+      margin: 8px 0;
+      font-weight: bold;
+    }
+    
+    .mal-mobile-role-list {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .mal-mobile-role-card {
+      padding: 2px 0;
+      border-bottom: 1px solid currentColor;
+    }
+    
+    .mal-mobile-role-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    
+    .mal-mobile-role-header > a {
+      display: block;
+      line-height: 0;
+    }
+    
+    .mal-mobile-character-portrait {
+      display: block;
+      width: 72px;
+      height: 88px;
+      object-fit: cover;
+      flex: 0 0 auto;
+    }
+    
+    .mal-mobile-role-information {
+      min-width: 0;
+      flex: 1;
+      align-self: stretch;
+    
+      display: flex;
+      flex-direction: column;
+	  
+	  font-size: 13px;
+	  line-height: 1.35;
+    }
+    
+    .mal-mobile-character-name {
+      display: block;
+      font-weight: bold;
+      font-size: 1.1em;
+	  line-height: 1.35;
+    }
+    
+    .mal-mobile-role-metadata {
+      margin-top: 3px;
+    }
+    
+    .mal-mobile-franchise {
+      margin-top: 3px;
+      opacity: 0.85;
+      font-size: 1.05em;
+    }
+    
+    .mal-mobile-entries-toggle {
+      align-self: flex-start;
+	  margin-top: auto;
+	  margin-left: 25%;
+	  margin-bottom: 4px;
+	  
+      padding: 0;
+      border: 0;
+      background: none;
+      color: inherit;
+      font: inherit;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+    
+    .mal-mobile-entry-list {
+      margin: 10px 0 0 10px;
+    }
+    
+    .mal-mobile-entry {
+      padding: 4px 0;
+    }
   `;
 
   document.head.append(style);
@@ -1746,7 +2266,19 @@ function injectEnhancedStyles() {
 
 // Diagnostic code
 try {
-  const parsedRows = parseRoles();
+
+  const parsedRows = parseMobileRoles();
+  const groupedRoles = groupMobileRoles(parsedRows);
+  
+  injectEnhancedStyles();
+  injectMobileRoleList(groupedRoles);
+  
+  console.log(
+    `Injected ${groupedRoles.length} grouped mobile roles ` +
+    `from ${parsedRows.length} appearances.`
+  );
+
+/*   const parsedRows = parseRoles();
   const groupedRoles = groupRoles(parsedRows);
 
   injectEnhancedStyles();
@@ -1772,7 +2304,8 @@ try {
 		  appearance => appearance.roleType === "Supporting"
 		).length
 	  }))
-	);  
+	);
+ */
   
 } catch (error) {
   console.error(
