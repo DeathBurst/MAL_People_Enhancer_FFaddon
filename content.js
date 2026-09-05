@@ -415,6 +415,7 @@ function groupRoles(rows) {
     role.firstAppearance = findFirstAppearance(role);
     role.latestAppearance = findLatestAppearance(role);
 	role.classification = classifyCharacter(role.appearances);
+    role.franchise = detectFranchise(role.appearances);
   }
 
   groupedRoles.sort(compareGroupedRoles);
@@ -489,7 +490,6 @@ function findFirstAppearance(role) {
         : first
   );
 }
-
 
 function findLatestAppearance(role) {
   if (role.appearances.length === 0) {
@@ -576,6 +576,590 @@ function classifyCharacter(appearances) {
 
   return "Mixed";
 }
+
+// Franchise detection
+
+const AMBIGUOUS_FRANCHISE = "!!! TWO TIED NAMES !!!";
+
+function tokenizeTitle(title) {
+  return Array.from(
+    title.matchAll(
+      /[\p{L}\p{N}]+|[^\p{L}\p{N}\s]/gu
+    ),
+    match => ({
+      normalized: match[0].toLocaleLowerCase(),
+      start: match.index,
+      end: match.index + match[0].length
+    })
+  );
+}
+
+function findCandidatesToken(titles) {
+  const tokenizedTitles = titles.map(tokenizeTitle);
+  const uniqueCandidates = new Map();
+
+  for (
+    let leftIndex = 0;
+    leftIndex < tokenizedTitles.length;
+    leftIndex++
+  ) {
+    for (
+      let rightIndex = leftIndex + 1;
+      rightIndex < tokenizedTitles.length;
+      rightIndex++
+    ) {
+      const pairCandidates = findCommonTokenSequences(
+        tokenizedTitles[leftIndex],
+        tokenizedTitles[rightIndex]
+      );
+
+      for (const candidate of pairCandidates) {
+        const key = candidate.join("\u0000");
+
+        if (!uniqueCandidates.has(key)) {
+          uniqueCandidates.set(key, candidate);
+        }
+      }
+    }
+  }
+
+  return Array.from(uniqueCandidates.values());
+}
+
+function findCommonTokenSequences(leftTokens, rightTokens) {
+  const uniqueCandidates = new Map();
+
+  for (
+    let leftStart = 0;
+    leftStart < leftTokens.length;
+    leftStart++
+  ) {
+    for (
+      let rightStart = 0;
+      rightStart < rightTokens.length;
+      rightStart++
+    ) {
+      const candidate = [];
+
+      for (
+        let offset = 0;
+        leftStart + offset < leftTokens.length &&
+        rightStart + offset < rightTokens.length;
+        offset++
+      ) {
+        const leftToken =
+          leftTokens[leftStart + offset].normalized;
+
+        const rightToken =
+          rightTokens[rightStart + offset].normalized;
+
+        if (leftToken !== rightToken) {
+          break;
+        }
+
+        candidate.push(leftToken);
+
+        if (!containsAlphanumericToken(candidate)) {
+          continue;
+        }
+
+        const savedCandidate = [...candidate];
+        const key = savedCandidate.join("\u0000");
+
+        if (!uniqueCandidates.has(key)) {
+          uniqueCandidates.set(key, savedCandidate);
+        }
+      }
+    }
+  }
+
+  return Array.from(uniqueCandidates.values());
+}
+
+
+function containsAlphanumericToken(candidate) {
+  return candidate.some(
+    token => /[\p{L}\p{N}]/u.test(token)
+  );
+}
+
+
+
+
+function deduplicateTokenCandidates(candidates) {
+  const uniqueCandidates = new Map();
+
+  for (const candidate of candidates) {
+    const key = candidate.join("\u0000");
+
+    if (!uniqueCandidates.has(key)) {
+      uniqueCandidates.set(key, candidate);
+    }
+  }
+
+  return Array.from(uniqueCandidates.values());
+}
+
+
+function scoreCandidatesToken(candidates, titles) {
+  const tokenizedTitles = titles.map(tokenizeTitle);
+
+  return candidates.map(candidate => {
+    const matchingPositions = [];
+
+    for (const titleTokens of tokenizedTitles) {
+      const startIndex = findTokenSequenceIndex(
+        titleTokens,
+        candidate
+      );
+
+      if (startIndex !== -1) {
+        matchingPositions.push(startIndex);
+      }
+    }
+
+    const averageStart =
+      matchingPositions.reduce(
+        (total, position) => total + position,
+        0
+      ) / matchingPositions.length;
+
+    return {
+      candidate,
+      matches: matchingPositions.length,
+      averageStart,
+      characterLength: candidate.reduce(
+        (total, token) => total + token.length,
+        0
+      )
+    };
+  });
+}
+
+
+function findTokenSequenceIndex(titleTokens, candidate) {
+  if (
+    candidate.length === 0 ||
+    candidate.length > titleTokens.length
+  ) {
+    return -1;
+  }
+
+  for (
+    let startIndex = 0;
+    startIndex <= titleTokens.length - candidate.length;
+    startIndex++
+  ) {
+    const matches = candidate.every(
+      (candidateToken, offset) =>
+        titleTokens[startIndex + offset].normalized ===
+        candidateToken
+    );
+
+    if (matches) {
+      return startIndex;
+    }
+  }
+
+  return -1;
+}
+
+
+
+
+const EXACT_MATCH_BONUS = 2;
+const EARLIEST_APPEARANCE_BONUS = 1;
+
+function bestCandidate(scoredCandidates, appearances) {
+  if (appearances.length === 0) {
+    throw new GroupingError(
+      "Cannot select a franchise name without appearances."
+    );
+  }
+
+  const chronologicalAppearances = [...appearances].sort(
+    compareAppearancesChronologically
+  );
+
+  const fallbackCandidate = tokenizeTitle(
+    chronologicalAppearances[0].entryTitle
+  ).map(token => token.normalized);
+
+  if (scoredCandidates.length === 0) {
+    return fallbackCandidate;
+  }
+
+  const rankedCandidates = scoredCandidates
+    .filter(
+      scored =>
+        scored.matches / appearances.length >= 0.4
+    )
+    .sort(compareInitialCandidateRanking)
+    .map((scored, index) => ({
+      ...scored,
+      initialRank: index
+    }));
+
+  if (rankedCandidates.length === 0) {
+    return fallbackCandidate;
+  }
+
+  rankedCandidates.reverse();
+
+  let winner = rankedCandidates[0];
+
+  for (
+    let index = 1;
+    index < rankedCandidates.length;
+    index++
+  ) {
+    winner = duelCandidates(
+      winner,
+      rankedCandidates[index],
+      chronologicalAppearances
+    );
+  }
+
+  return winner.candidate;
+}
+
+function compareInitialCandidateRanking(left, right) {
+  if (left.matches !== right.matches) {
+    return right.matches - left.matches;
+  }
+
+  return right.characterLength - left.characterLength;
+}
+
+
+function duelCandidates(
+  currentWinner,
+  challenger,
+  chronologicalAppearances
+) {
+  const nested = areCandidatesNested(
+    currentWinner.candidate,
+    challenger.candidate
+  );
+
+  if (nested) {
+    return duelNestedCandidates(
+      currentWinner,
+      challenger,
+      chronologicalAppearances
+    );
+  }
+
+  return duelIndependentCandidates(
+    currentWinner,
+    challenger,
+    chronologicalAppearances
+  );
+}
+
+
+function duelIndependentCandidates(
+  currentWinner,
+  challenger,
+  chronologicalAppearances
+) {
+  if (
+    currentWinner.averageStart <
+    challenger.averageStart
+  ) {
+    return currentWinner;
+  }
+
+  if (
+    challenger.averageStart <
+    currentWinner.averageStart
+  ) {
+    return challenger;
+  }
+
+  const earliestWinners = candidatesMatchingEarliestEntry(
+    [currentWinner, challenger],
+    chronologicalAppearances
+  );
+
+  if (earliestWinners.length === 1) {
+    return earliestWinners[0];
+  }
+
+  return initialRankingWinner(
+    currentWinner,
+    challenger
+  );
+}
+
+
+function duelNestedCandidates(
+  currentWinner,
+  challenger,
+  chronologicalAppearances
+) {
+  let winnerPoints = 0;
+  let challengerPoints = 0;
+
+  if (
+    candidateExactlyMatchesAnyEntry(
+      currentWinner.candidate,
+      chronologicalAppearances
+    )
+  ) {
+    winnerPoints += EXACT_MATCH_BONUS;
+  }
+
+  if (
+    candidateExactlyMatchesAnyEntry(
+      challenger.candidate,
+      chronologicalAppearances
+    )
+  ) {
+    challengerPoints += EXACT_MATCH_BONUS;
+  }
+
+  const coverageDifference =
+    currentWinner.matches - challenger.matches;
+
+  if (coverageDifference > 0) {
+    winnerPoints += coverageDifference;
+  } else if (coverageDifference < 0) {
+    challengerPoints += -coverageDifference;
+  }
+
+  const winnerAlphanumericTokens =
+    countAlphanumericTokens(
+      currentWinner.candidate
+    );
+
+  const challengerAlphanumericTokens =
+    countAlphanumericTokens(
+      challenger.candidate
+    );
+
+  const tokenDifference =
+    winnerAlphanumericTokens -
+    challengerAlphanumericTokens;
+
+  if (tokenDifference > 0) {
+    winnerPoints += tokenDifference;
+  } else if (tokenDifference < 0) {
+    challengerPoints += -tokenDifference;
+  }
+
+  const earliestWinners = candidatesMatchingEarliestEntry(
+    [currentWinner, challenger],
+    chronologicalAppearances
+  );
+
+  if (earliestWinners.includes(currentWinner)) {
+    winnerPoints += EARLIEST_APPEARANCE_BONUS;
+  }
+
+  if (earliestWinners.includes(challenger)) {
+    challengerPoints += EARLIEST_APPEARANCE_BONUS;
+  }
+
+  if (winnerPoints > challengerPoints) {
+    return currentWinner;
+  }
+
+  if (challengerPoints > winnerPoints) {
+    return challenger;
+  }
+
+  return initialRankingWinner(
+    currentWinner,
+    challenger
+  );
+}
+
+
+function areCandidatesNested(leftCandidate, rightCandidate) {
+  return (
+    containsCandidateSequence(
+      leftCandidate,
+      rightCandidate
+    ) ||
+    containsCandidateSequence(
+      rightCandidate,
+      leftCandidate
+    )
+  );
+}
+
+
+function containsCandidateSequence(
+  outerCandidate,
+  innerCandidate
+) {
+  if (
+    innerCandidate.length === 0 ||
+    innerCandidate.length > outerCandidate.length
+  ) {
+    return false;
+  }
+
+  for (
+    let startIndex = 0;
+    startIndex <=
+      outerCandidate.length - innerCandidate.length;
+    startIndex++
+  ) {
+    const matches = innerCandidate.every(
+      (token, offset) =>
+        outerCandidate[startIndex + offset] === token
+    );
+
+    if (matches) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+
+function candidateExactlyMatchesAnyEntry(
+  candidate,
+  appearances
+) {
+  return appearances.some(appearance => {
+    const titleTokens = tokenizeTitle(
+      appearance.entryTitle
+    ).map(token => token.normalized);
+
+    return tokenSequencesAreEqual(
+      candidate,
+      titleTokens
+    );
+  });
+}
+
+
+function tokenSequencesAreEqual(left, right) {
+  return (
+    left.length === right.length &&
+    left.every(
+      (token, index) => token === right[index]
+    )
+  );
+}
+
+
+function countAlphanumericTokens(candidate) {
+  return candidate.filter(
+    token => /^[\p{L}\p{N}]+$/u.test(token)
+  ).length;
+}
+
+
+function candidatesMatchingEarliestEntry(
+  candidates,
+  chronologicalAppearances
+) {
+  for (const appearance of chronologicalAppearances) {
+    const titleTokens = tokenizeTitle(
+      appearance.entryTitle
+    );
+
+    const matchingCandidates = candidates.filter(
+      scored =>
+        findTokenSequenceIndex(
+          titleTokens,
+          scored.candidate
+        ) !== -1
+    );
+
+    if (matchingCandidates.length > 0) {
+      return matchingCandidates;
+    }
+  }
+
+  throw new GroupingError(
+    "No chronological appearance matches either " +
+    "franchise candidate."
+  );
+}
+
+
+function initialRankingWinner(left, right) {
+  return left.initialRank <= right.initialRank
+    ? left
+    : right;
+}
+
+
+function isAlphanumericToken(token) {
+  return /^[\p{L}\p{N}]+$/u.test(token);
+}
+
+
+
+function recoverCandidateFormatting(candidate, titles) {
+  for (const title of titles) {
+    const titleTokens = tokenizeTitle(title);
+
+    const startIndex = findTokenSequenceIndex(
+      titleTokens,
+      candidate
+    );
+
+    if (startIndex === -1) {
+      continue;
+    }
+
+    const firstToken = titleTokens[startIndex];
+
+    const lastToken =
+      titleTokens[startIndex + candidate.length - 1];
+
+    return title
+      .slice(firstToken.start, lastToken.end)
+      .trim();
+  }
+
+  throw new GroupingError(
+    "Could not recover formatting for candidate: " +
+    JSON.stringify(candidate)
+  );
+}
+
+function detectFranchise(appearances) {
+  if (appearances.length === 0) {
+    throw new GroupingError(
+      "Cannot detect a franchise without appearances."
+    );
+  }
+
+  if (appearances.length === 1) {
+    return appearances[0].entryTitle;
+  }
+
+  const titles = appearances.map(
+    appearance => appearance.entryTitle
+  );
+
+  const candidates = findCandidatesToken(titles);
+
+  const scoredCandidates = scoreCandidatesToken(
+    candidates,
+    titles
+  );
+
+  const candidate = bestCandidate(
+    scoredCandidates,
+    appearances
+  );
+  
+  return recoverCandidateFormatting(
+    candidate,
+    titles
+  );
+}   
+
+
 
 // Injection
 
@@ -880,11 +1464,19 @@ function renderCharacterCell(role, cell) {
   portrait.alt = "";
   portrait.loading = "lazy";
 
-  const link = document.createElement("a");
-  link.href = role.characterUrl;
-  link.textContent = role.characterName;
+  const textWrapper = document.createElement("div");
+  textWrapper.className = "mal-character-text";
 
-  wrapper.append(portrait, link);
+  const characterLink = document.createElement("a");
+  characterLink.href = role.characterUrl;
+  characterLink.textContent = role.characterName;
+
+  const franchise = document.createElement("div");
+  franchise.className = "mal-character-franchise";
+  franchise.textContent = role.franchise;
+
+  textWrapper.append(characterLink, franchise);
+  wrapper.append(portrait, textWrapper);
   cell.append(wrapper);
 }
 
@@ -1133,6 +1725,19 @@ function injectEnhancedStyles() {
       display: grid;
       gap: 4px;
       padding: 4px 8px;
+    }
+	
+	
+	.mal-character-text {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .mal-character-franchise {
+      margin-top: 3px;
+      font-size: 0.9em;
+      opacity: 0.75;
     }
   `;
 
