@@ -7,7 +7,9 @@ To install it, just download the .xpi at [this link](https://deathburst.github.i
 
 ### Description 
 The main goal is to avoid repeated entries in the same franchise (every season, movie, OVA, etc.) clogging the list with the same character appearing again and again.
-Instead, a new table presents the different appearances grouped with a single line for each character.
+Instead, a new table presents the different appearances grouped with a single line for each character, with their portrait, their name, and the series/franchise they are coming from indicated below their name.
+
+> Franchise detection works based on complex heuristics and is not perfect. Please document failure cases when you find them to help me improve the heuristics.
 
 Some minor data analysis is also performed:
 - count of distinct-character roles.
@@ -19,7 +21,6 @@ The new enhanced table is sortable by clicking on the column headers.
 - Other columns alternate between the classic descending and ascending orders.
 
 ### Future features considered:
-- character-level franchise/source-title detection -> avoid opening the appearances list just for that
 - improved career summary above the table
 - interaction with "My List" feature from MAL's default table
 - similar treatment to the "Staff position" list to group together theme songs performances for the main franchise
@@ -28,4 +29,6 @@ The new enhanced table is sortable by clicking on the column headers.
 ### Version history:
 
 - v1: basic table with sortable headers, Character, Favorites, foldable Appearances list, First and Last Appearances.
-- v1.1: added character-level role classification and a short career summary above the table. The Role column acts as a filter.
+- v1.1: added character-level role classification and a short career summary above the table. The Role column acts as a filter.  
+**First version with auto-updates enabled.**
+- v1.2: added character-level franchise detection -> avoid opening the appearances list just to check the franchise.
