@@ -1653,7 +1653,8 @@ function injectEnhancedTable(groupedRoles, parsedRows) {
     `${groupedRoles.length} distinct roles ` +
     `→ ${classificationCounts.Main} Main / ` +
     `${classificationCounts.Mixed} Mixed / ` +
-    `${classificationCounts.Supporting} Supporting`;
+    `${classificationCounts.Supporting} Supporting` +
+	` (${((classificationCounts.Main / groupedRoles.length) * 100).toFixed(0)}% Main)`;
 
     const milestones = computeCareerMilestones(parsedRows);
     
