@@ -13,7 +13,9 @@ Instead, a new table presents the different appearances grouped with a single li
 
 Some minor data analysis is also performed:
 - count of distinct-character roles.
-- character-level classification as Main/Supporting/Mixed role, based on the entry-level data provided by MAL.
+- character-level classification as Main/Supporting/Mixed role, based on the entry-level data provided by MAL, with the fraction of Main.
+- career span and duration, plus an "ongoing" indicator.
+- date of first Main role, and time to first Main from career start.
 - first and latest appearance for a given character.
 
 The new enhanced table is sortable by clicking on the column headers. 
@@ -21,10 +23,11 @@ The new enhanced table is sortable by clicking on the column headers.
 - Other columns alternate between the classic descending and ascending orders.
 
 ### Future features considered:
-- improved career summary above the table
+- various UI improvements (next version)
+- improved career summary above the table  
+(feel free to suggest ideas)
 - interaction with "My List" feature from MAL's default table
 - similar treatment to the "Staff position" list to group together theme songs performances for the main franchise
-- mobile-compatible version and various UI improvements
 
 ### Version history:
 
@@ -32,3 +35,4 @@ The new enhanced table is sortable by clicking on the column headers.
 - v1.1: added character-level role classification and a short career summary above the table. The Role column acts as a filter.  
 **First version with auto-updates enabled.**
 - v1.2: added character-level franchise detection -> avoid opening the appearances list just to check the franchise.
+- v1.3: **first version with mobile support**. Also added a few more infos to the career summary above the table itself.
