@@ -1,0 +1,659 @@
+
+#mal-people-enhanced-roles {
+  margin-bottom: 24px;
+}
+
+.mal-enhanced-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.mal-enhanced-table th,
+.mal-enhanced-table td {
+  padding: 8px;
+  border: 1px solid;
+  border-color: currentColor;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.mal-sort-button {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: bold;
+  text-align: left;
+  cursor: pointer;
+}
+
+th[aria-sort="ascending"]
+  .mal-sort-indicator::after {
+  content: "▲";
+}
+
+th[aria-sort="descending"]
+  .mal-sort-indicator::after {
+  content: "▼";
+}
+
+.mal-character-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mal-character-portrait {
+  width: 42px;
+  height: 62px;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+
+.mal-entries-toggle {
+  margin-left: 0px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.mal-entry-list {
+  display: grid;
+  gap: 4px;
+  padding: 4px 8px;
+}
+
+
+.mal-character-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mal-character-franchise {
+  margin-top: 3px;
+  font-size: 0.9em;
+  opacity: 0.75;
+}
+
+
+#mal-mobile-enhanced-roles {
+  margin-bottom: 16px;
+}
+
+
+.mal-mobile-enhanced-header {
+  margin: 0;
+  cursor: pointer;
+}
+
+.mal-mobile-enhanced-header.is-stuck {
+  position: fixed;
+  top: 48px;
+  left: 0;
+  right: 0;
+  z-index: 9998;
+}	
+
+.mal-mobile-summary {
+  margin: 8px 0;
+  font-weight: bold;
+}
+
+.mal-mobile-role-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.mal-mobile-role-card {
+  padding: 2px 0;
+  border-bottom: 1px solid currentColor;
+}
+
+.mal-mobile-role-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.mal-mobile-role-header > a {
+  display: block;
+  line-height: 0;
+}
+
+.mal-mobile-character-portrait {
+  display: block;
+  width: 72px;
+  height: 88px;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+
+.mal-mobile-role-information {
+  min-width: 0;
+  flex: 1;
+  align-self: stretch;
+
+  display: flex;
+  flex-direction: column;
+  
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.mal-mobile-character-name {
+  display: block;
+  font-weight: bold;
+  font-size: 1.1em;
+  line-height: 1.35;
+}
+
+.mal-mobile-role-metadata {
+  margin-top: 3px;
+}
+
+.mal-mobile-franchise {
+  margin-top: 3px;
+  opacity: 0.85;
+  font-size: 1.05em;
+}
+
+.mal-mobile-entries-toggle {
+  align-self: flex-start;
+  margin-top: auto;
+  margin-left: 25%;
+  margin-bottom: 4px;
+  
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.mal-mobile-entry-list {
+  margin: 10px 0 0 10px;
+}
+
+.mal-mobile-entry {
+  padding: 4px 0;
+}
+
+.mal-career-sort-indicator {
+  display: inline-block;
+  width: 1.2em;
+  visibility: hidden;
+}
+.mal-career-sort-option.is-active
+  .mal-career-sort-indicator {
+  visibility: visible;
+}
+
+.mal-character-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px; /* character name to bullet */
+}
+
+.mal-character-role-info {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px; /* bullet to classification */
+}
+
+.mal-character-name {
+  font-size: 1.05em;
+  font-weight: bold;
+}
+
+.mal-character-classification {
+  font-size: 0.95em;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.mal-popularity-line {
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.mal-popularity-line + .mal-popularity-line {
+  margin-top: 4px;
+}
+
+.mal-popularity-favorites {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+.mal-popularity-shows {
+  
+}
+.mal-popularity-span {
+  margin-left: 25px;
+}
+
+.mal-popularity-toggle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  width: 100%;
+  gap: 20px;
+}	
+
+.mal-popularity-value {
+  font-weight: bold;
+}
+
+.mal-popularity-label {
+  opacity: 0.8;
+}
+
+.mal-column-heading {
+  margin-bottom: 4px;
+  font-weight: bold;
+}
+
+.mal-header-mode-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.mal-header-mode-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.mal-header-mode-indicator {
+  display: inline-block;
+  width: 1.2em;
+  visibility: hidden;
+  text-align: center;
+}
+
+.mal-career-header .mal-header-mode-separator {
+  margin-left: 8px;
+  margin-right: 4px;
+  opacity: 0.6;
+}	
+
+
+.mal-character-header-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mal-character-header-line .mal-column-heading {
+  margin-bottom: 0;
+}
+
+.mal-career-header {
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+}
+
+.mal-career-header .mal-column-heading {
+  margin-bottom: 2px;
+  font-size: 1.1em;
+  font-weight: bold;
+  text-align: center;
+}
+
+.mal-career-header .mal-header-mode-controls {
+  justify-content: center;
+  gap: 0;
+  font-weight: normal;
+}
+
+.mal-career-header .mal-header-mode-button {
+  padding-top: 2px;
+  padding-right: 0px;
+  padding-bottom: 2px;
+  padding-left: 0px;
+  font-weight: normal;
+}    
+
+.mal-career-header .mal-header-mode-indicator {
+  width: 0.5em;
+  margin-left: 2px;
+  text-align: left;
+}
+
+.mal-popularity-header {
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+}
+
+.mal-popularity-header .mal-column-heading {
+  margin-bottom: 2px;
+  font-size: 1.1em;
+  font-weight: bold;
+  text-align: center;
+}
+
+.mal-popularity-header .mal-header-mode-controls {
+  justify-content: center;
+  gap: 0;
+  font-weight: normal;
+}
+
+.mal-popularity-header .mal-header-mode-button {
+  padding-top: 2px;
+  padding-right: 0;
+  padding-bottom: 2px;
+  padding-left: 0;
+  font-weight: normal;
+}
+
+.mal-popularity-header .mal-header-mode-indicator {
+  width: 0.5em;
+  margin-left: 2px;
+  text-align: left;
+}
+
+.mal-popularity-header
+  .mal-header-mode-separator {
+  margin-left: 8px;
+  margin-right: 4px;
+  opacity: 0.6;
+}
+
+.mal-character-header {
+  position: relative;
+  display: table-cell;
+}
+
+.mal-character-header-layout
+  > .mal-alphabetical-header-button:first-child {
+  justify-self: start;
+}
+
+.mal-character-header-layout
+  > .mal-alphabetical-header-button:nth-child(2) {
+  justify-self: center;
+}
+
+.mal-character-header-layout
+  > .mal-role-control {
+  justify-self: end;
+}
+.mal-character-header-name {
+  justify-self: start;
+}
+
+.mal-character-header-franchise {
+  justify-self: center;
+}
+
+.mal-role-header {
+  justify-self: end;
+}
+
+.mal-character-header .mal-column-heading {
+  margin-bottom: 5px;
+  font-size: 1.1em;
+  text-align: left;
+}
+
+.mal-character-header-layout {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+}    
+
+.mal-character-header-character {
+  font-size: 1.1em;
+  font-weight: bold;
+}
+
+.mal-alphabetical-header-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+
+  padding: 0;
+  border: 0;
+  background: none;
+
+  color: inherit;
+  font: inherit;
+  font-size: 1.2em;
+  font-weight: bold;
+
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mal-alphabetical-header-button:first-child {
+  justify-self: start;
+}
+
+.mal-alphabetical-header-button:nth-child(2) {
+  justify-self: center;
+}
+
+.mal-alphabetical-sort-indicator {
+  display: inline-block;
+  width: 0.8em;
+
+  visibility: hidden;
+  font-size: 0.75em !important;
+  text-align: left;
+}	
+
+.mal-role-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: normal;
+}
+
+.mal-role-control-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  width: 8.5em;
+}
+
+.mal-role-control-display .mal-column-heading {
+  margin-bottom: 2px;
+  font-size: 1.1em;
+  font-weight: bold;
+}
+.mal-role-control-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  white-space: nowrap;
+  font-weight: normal;
+}
+
+.mal-role-menu-order-indicator {
+  display: inline-block;
+  width: 0.7em;
+  margin-left: 2px;
+  visibility: hidden;
+  text-align: left;
+}
+
+.mal-role-menu-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  min-width: 18px;
+  height: 20px;
+  margin-left: 4px;
+  padding: 0 3px;
+
+  border: 1px solid currentColor;
+  border-radius: 3px;
+
+  background: color-mix(
+	in srgb,
+	currentColor 5%,
+	transparent
+  );
+
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.mal-role-menu-button:hover,
+.mal-role-menu-button:focus-visible {
+  background: color-mix(
+	in srgb,
+	currentColor 10%,
+	transparent
+  );
+}  
+
+.mal-role-menu-dropdown-indicator {
+  display: inline-block;
+  font-size: 0.85em;
+}
+
+.mal-role-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 1000;
+
+  min-width: 155px;
+  padding: 7px;
+
+  border: 1px solid currentColor;
+  border-radius: 3px;
+
+  background: Canvas;
+  color: CanvasText;
+
+  box-shadow: 0 3px 8px rgb(0 0 0 / 25%);
+  text-align: left;
+}
+
+.mal-role-menu-section {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.mal-role-menu-section +
+.mal-role-menu-section {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.mal-role-menu-section-separator {
+  margin: 7px 0;
+  border-top: 1px solid currentColor;
+  opacity: 0.6;
+}
+
+.mal-role-menu-section legend {
+  margin-bottom: 3px;
+  padding: 0;
+  font-weight: bold;
+}
+
+.mal-role-menu-option {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 0;
+  font-weight: normal;
+  cursor: pointer;
+}
+
+.mal-role-menu-option input {
+  margin: 0;
+}
+
+.mal-order-control.mal-primary-order
+  .mal-order-label {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.mal-order-control.mal-primary-order
+  .mal-order-indicator,
+.mal-order-control.mal-secondary-order
+  .mal-order-indicator {
+  visibility: visible !important;
+}	
+
+.mal-role-order-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+ 
+  padding: 0;
+  border: 0;
+  background: none;
+ 
+  color: inherit;
+  font: inherit;
+  font-size: 1.1em;
+  font-weight: bold;
+ 
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mal-popularity-content {
+  width: 100%;
+  max-width: 150px;
+  margin-inline: auto;
+}
+
+.mal-career-content {
+  display: grid;
+  width: max-content;
+  justify-content: center;
+  margin-inline: auto;
+}
+
+.mal-career-first {
+  justify-self: start;
+  white-space: nowrap;
+}
+
+.mal-career-first:has(+ .mal-career-latest) {
+  padding-right: 3ch;
+}
+
+.mal-career-latest {
+  justify-self: end;
+  padding-left: 3ch;
+  white-space: nowrap;
+  margin-top: 5px;
+}
+
+.mal-enhanced-table.mal-columns-frozen {
+  table-layout: fixed;
+}

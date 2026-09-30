@@ -588,6 +588,9 @@ function groupRoles(rows) {
   for (const role of groupedRoles) {
     role.firstAppearance = findFirstAppearance(role);
     role.latestAppearance = findLatestAppearance(role);
+    role.spanMonths = calculateSpanMonths(
+	  role.firstAppearance.dateSort,role.latestAppearance.dateSort
+	);
 	role.classification = classifyCharacter(role.appearances);
     role.franchise = detectFranchise(role.appearances);
   }
@@ -732,12 +735,106 @@ function compareGroupedRoles(left, right) {
   return right.favorites - left.favorites;
 }
 
-function compareAppearancesChronologically(left, right) {
-  if (left.dateSort !== right.dateSort) {
-    return left.dateSort - right.dateSort;
+function getComparableDateSort(
+  dateSort,
+  today = new Date()
+) {
+  const raw = String(dateSort).padStart(8, "0");
+
+  const year = Number(raw.slice(0, 4));
+  const month = Number(raw.slice(4, 6));
+  const day = Number(raw.slice(6, 8));
+
+  /*
+   * No year means no usable chronological information.
+   */
+  if (year === 0) {
+    return null;
   }
 
-  // For the same dateSort, MAL's smaller sourceOrder is more recent.
+  const todaySort =
+    today.getFullYear() * 10_000 +
+    (today.getMonth() + 1) * 100 +
+    today.getDate();
+
+  /*
+   * A complete date needs no interpretation.
+   */
+  if (month !== 0 && day !== 0) {
+    return year * 10_000 + month * 100 + day;
+  }
+
+  if (month < 0 || month > 12) {
+    throw new GroupingError(
+      `Invalid month in dateSort: ${dateSort}.`
+    );
+  }
+
+  /*
+   * Earliest and latest possible dates represented by the
+   * incomplete value.
+   */
+  const earliestMonth = month === 0 ? 1 : month;
+  const latestMonth = month === 0 ? 12 : month;
+
+  const earliestDay = day === 0 ? 1 : day;
+
+  const latestDay = day === 0
+    ? new Date(year, latestMonth, 0).getDate()
+    : day;
+
+  const earliestPossible =
+    year * 10_000 +
+    earliestMonth * 100 +
+    earliestDay;
+
+  const latestPossible =
+    year * 10_000 +
+    latestMonth * 100 +
+    latestDay;
+
+  /*
+   * An incomplete date is considered past only when its
+   * entire possible range is already in the past.
+   *
+   * Past    -> earliest possible date.
+   * Current/future -> latest possible date.
+   */
+  return latestPossible < todaySort
+    ? earliestPossible
+    : latestPossible;
+}
+
+
+function hasKnownAppearanceYear(appearance) {
+  const raw = String(
+    appearance.dateSort
+  ).padStart(8, "0");
+
+  return Number(raw.slice(0, 4)) !== 0;
+}
+
+
+function compareAppearancesChronologically(left, right) {
+  const leftDate = getComparableDateSort(left.dateSort);
+  const rightDate = getComparableDateSort(right.dateSort);
+
+  /*
+   * Callers performing date selection should exclude these
+   * entries first. This check catches missed call sites.
+   */
+  if (leftDate === null || rightDate === null) {
+    throw new GroupingError(
+      "Cannot chronologically compare appearances " +
+      "without a known year."
+    );
+  }
+
+  if (leftDate !== rightDate) {
+    return leftDate - rightDate;
+  }
+
+  // For the same date, MAL's smaller sourceOrder is newer.
   return right.sourceOrder - left.sourceOrder;
 }
 
@@ -746,13 +843,18 @@ function compareMobileAppearances(left, right) {
 }
 
 function findFirstAppearance(role) {
-  if (role.appearances.length === 0) {
+  const datedAppearances = role.appearances.filter(
+    hasKnownAppearanceYear
+  );
+
+  if (datedAppearances.length === 0) {
     throw new GroupingError(
-      `Grouped role ${role.characterUrl} has no appearances.`
+      `Grouped role ${role.characterUrl} has no ` +
+      "appearance with a known year."
     );
   }
 
-  return role.appearances.reduce(
+  return datedAppearances.reduce(
     (first, appearance) =>
       compareAppearancesChronologically(
         appearance,
@@ -764,13 +866,18 @@ function findFirstAppearance(role) {
 }
 
 function findLatestAppearance(role) {
-  if (role.appearances.length === 0) {
+  const datedAppearances = role.appearances.filter(
+    hasKnownAppearanceYear
+  );
+
+  if (datedAppearances.length === 0) {
     throw new GroupingError(
-      `Grouped role ${role.characterUrl} has no appearances.`
+      `Grouped role ${role.characterUrl} has no ` +
+      "appearance with a known year."
     );
   }
 
-  return role.appearances.reduce(
+  return datedAppearances.reduce(
     (latest, appearance) =>
       compareAppearancesChronologically(
         appearance,
@@ -813,9 +920,13 @@ function classifyCharacter(appearances) {
     return "Supporting";
   }
 
-  const chronologicalAppearances = [...appearances].sort(
-    compareAppearancesChronologically
-  );
+  const chronologicalAppearances = appearances
+    .filter(hasKnownAppearanceYear)
+    .sort(compareAppearancesChronologically);
+  
+  if (chronologicalAppearances.length === 0) {
+    return "Mixed";
+  }
 
   const firstMainIndex = chronologicalAppearances.findIndex(
     appearance => appearance.roleType === "Main"
@@ -1054,10 +1165,15 @@ function bestCandidate(
     );
   }
 
-  const orderedAppearances = [...appearances].sort(
-    appearanceComparator
+  const datedAppearances = appearances.filter(
+    hasKnownAppearanceYear
   );
-
+  
+  const orderedAppearances =
+    datedAppearances.length > 0
+      ? [...datedAppearances].sort(appearanceComparator)
+      : [...appearances];
+	
   const fallbackCandidate = tokenizeTitle(
     orderedAppearances[0].entryTitle
   ).map(token => token.normalized);
@@ -1543,11 +1659,13 @@ function dateSortToDate(dateSort) {
   return new Date(year, month - 1, day);
 }
 
+function calculateSpanMonths(startDateSort,endDateSort) {
+//  const start = dateSortToDate(firstAppearance.dateSort);
+//  const end = dateSortToDate(latestAppearance.dateSort);
 
-function formatDuration(startDateSort, endDateSort) {
   const start = dateSortToDate(startDateSort);
   const end = dateSortToDate(endDateSort);
-
+  
   let months =
     (end.getFullYear() - start.getFullYear()) * 12 +
     end.getMonth() -
@@ -1557,9 +1675,13 @@ function formatDuration(startDateSort, endDateSort) {
     months--;
   }
 
-  months = Math.max(0, months);
+  return Math.max(0, months);
+}
 
-  const years = Math.floor(months / 12);
+function formatDuration(startDateSort, endDateSort) {
+  const months = calculateSpanMonths(startDateSort,endDateSort)
+
+  let years = Math.floor(months / 12);
   const remainingMonths = months % 12;
 
   if (years === 0) {
@@ -1572,10 +1694,14 @@ function formatDuration(startDateSort, endDateSort) {
 
   return `${years} years, ${remainingMonths} months`;
  */
-  if (remainingMonths < 7) {
-    return `${years} years`;
+  if (remainingMonths > 6) {
+    years = years+1;
   }
-  return `${years+1} years`;
+  if (years > 1) {
+	  return `${years} years`;
+  }
+  return `${years} year`
+;
  
  }
 
@@ -1597,7 +1723,18 @@ function computeCareerMilestones(parsedRows) {
     );
   }
 
-  const chronologicalRows = [...parsedRows].sort(
+  const datedRows = parsedRows.filter(
+    hasKnownAppearanceYear
+  );
+  
+  if (datedRows.length === 0) {
+    throw new GroupingError(
+      "Cannot compute career milestones without " +
+      "an appearance with a known year."
+    );
+  }
+  
+  const chronologicalRows = [...datedRows].sort(
     compareAppearancesChronologically
   );
 
@@ -1624,6 +1761,33 @@ function computeCareerMilestones(parsedRows) {
     ),
     ongoing: isWithinLastYear(lastRole.dateSort)
   };
+}
+
+function freezeInitialColumnWidths(table) {
+  requestAnimationFrame(() => {
+    const headerCells = Array.from(
+      table.querySelectorAll("thead th")
+    );
+
+    if (headerCells.length === 0) {
+      return;
+    }
+
+    const colgroup = document.createElement("colgroup");
+    colgroup.className = "mal-frozen-columns";
+
+    for (const headerCell of headerCells) {
+      const column = document.createElement("col");
+
+      column.style.width =
+        `${headerCell.getBoundingClientRect().width}px`;
+
+      colgroup.append(column);
+    }
+
+    table.prepend(colgroup);
+    table.classList.add("mal-columns-frozen");
+  });
 }
 
 function injectEnhancedTable(groupedRoles, parsedRows) {
@@ -1694,41 +1858,23 @@ function injectEnhancedTable(groupedRoles, parsedRows) {
       heading: "Character",
       sortType: "text",
       value: role => role.characterName.toLocaleLowerCase(),
-      render: renderCharacterCell
-    },
-	{
-	  heading: "Role",
-	  sortType: "role-type",
-	  value: role => role.classification,
-	  render: renderClassificationCell,
-	  roleTypeControl: true
-	},
-    {
-      heading: "Favorites",
-      sortType: "number",
-      value: role => role.favorites,
-      render: renderFavoritesCell,
+      render: renderCharacterCell,
+	  roleControl: true
     },
     {
-      heading: "Appearances",
-      sortType: "number",
+      heading: "Popularity",
+      sortType: "popularity",
       value: role => role.appearances.length,
-      render: renderAppearancesCell
+      render: renderPopularityCell,
+      popularityControl: true
     },
-	{
-	  heading: "First appearance",
-	  sortType: "number",
-	  value: role => appearanceSortValue(role.firstAppearance),
-	  render: (role, cell) =>
-		renderPeriodCell(cell, role.firstAppearance)
-	},
-	{
-	  heading: "Latest appearance",
-	  sortType: "number",
-	  value: role => appearanceSortValue(role.latestAppearance),
-	  render: (role, cell) =>
-		renderPeriodCell(cell, role.latestAppearance)
-	}
+    {
+      heading: "Career",
+      sortType: "number",
+      value: role => appearanceSortValue(role.firstAppearance),
+      render: renderCareerCell,
+      careerControl: true
+    },
   ];
 
   const tableHead = document.createElement("thead");
@@ -1740,6 +1886,222 @@ function injectEnhancedTable(groupedRoles, parsedRows) {
     const header = document.createElement("th");
     header.scope = "col";
     header.dataset.sortType = column.sortType;
+
+    if (column.roleControl) {
+      header.classList.add("mal-character-header");
+    
+      const headerLayout = document.createElement("div");
+      headerLayout.className = "mal-character-header-layout";
+    
+      const characterButton =
+        createAlphabeticalHeaderButton(
+          "Character",
+          "characterName"
+        );
+    
+      const franchiseButton =
+        createAlphabeticalHeaderButton(
+          "Franchise",
+          "franchise"
+        );
+    
+      const roleControl = createRoleControl(table);
+    
+      characterButton.addEventListener("click", () => {
+        applyAlphabeticalSort(
+          table,
+          "characterName",
+          characterButton
+        );
+      });
+    
+      franchiseButton.addEventListener("click", () => {
+        applyAlphabeticalSort(
+          table,
+          "franchise",
+          franchiseButton
+        );
+      });
+    
+      headerLayout.append(
+        characterButton,
+        franchiseButton,
+        roleControl
+      );
+    
+      header.append(headerLayout);
+      headerRow.append(header);
+    
+      return;
+    }
+	
+    if (column.popularityControl) {
+      header.classList.add("mal-popularity-header");
+    
+      const title = document.createElement("div");
+      title.className = "mal-column-heading";
+      title.textContent = column.heading;
+    
+      const controls = document.createElement("div");
+      controls.className = "mal-header-mode-controls";
+    
+      const favoritesButton = createHeaderModeButton(
+        "Fav.",
+        "▼"
+      );
+    
+      const firstSeparator =
+        document.createElement("span");
+    
+      firstSeparator.className =
+        "mal-header-mode-separator";
+    
+      firstSeparator.textContent = "│";
+    
+      const showsButton = createHeaderModeButton(
+        "Shows",
+        "▼"
+      );
+    
+      const secondSeparator =
+        document.createElement("span");
+    
+      secondSeparator.className =
+        "mal-header-mode-separator";
+    
+      secondSeparator.textContent = "│";
+    
+      const spanButton = createHeaderModeButton(
+        "Span",
+        "▼"
+      );
+    
+      favoritesButton.addEventListener("click", () => {
+        applyPopularitySort(
+          table,
+          "favorites",
+          [
+            favoritesButton,
+            showsButton,
+            spanButton
+          ],
+          favoritesButton
+        );
+      });
+    
+      showsButton.addEventListener("click", () => {
+        applyPopularitySort(
+          table,
+          "appearances",
+          [
+            favoritesButton,
+            showsButton,
+            spanButton
+          ],
+          showsButton
+        );
+      });
+    
+      spanButton.addEventListener("click", () => {
+        applyPopularitySort(
+          table,
+          "spanMonths",
+          [
+            favoritesButton,
+            showsButton,
+            spanButton
+          ],
+          spanButton
+        );
+      });
+	  
+      /*
+       * The initial grouped-role order is:
+       * appearances descending, then Favorites descending.
+       */
+      activateOrderingControl(
+        table,
+        favoritesButton,
+        "descending"
+      );
+      
+      activateOrderingControl(
+        table,
+        showsButton,
+        "descending"
+      );    
+	  
+      controls.append(
+        showsButton,
+        firstSeparator,
+        spanButton,
+        secondSeparator,
+        favoritesButton,
+      );
+    
+      header.append(title, controls);
+      headerRow.append(header);
+    
+      return;
+    }
+
+    if (column.careerControl) {
+	  header.classList.add("mal-career-header");
+      const title = document.createElement("div");
+      title.className = "mal-column-heading";
+      title.textContent = column.heading;
+    
+      const controls = document.createElement("div");
+      controls.className = "mal-header-mode-controls";
+    
+      const firstButton = createHeaderModeButton(
+        "Early",
+        "▲"
+      );
+    
+      const separator = document.createElement("span");
+      separator.className = "mal-header-mode-separator";
+      separator.textContent = "│";
+    
+      const recentButton = createHeaderModeButton(
+        "Recent",
+        "▼"
+      );
+    
+      firstButton.addEventListener("click", () => {
+        applyCareerSort(
+          table,
+          columns,
+          columnIndex,
+          "first",
+          firstButton,
+          recentButton
+        );
+      });
+    
+      recentButton.addEventListener("click", () => {
+        applyCareerSort(
+          table,
+          columns,
+          columnIndex,
+          "recent",
+          firstButton,
+          recentButton
+        );
+      });
+    
+      controls.append(
+        firstButton,
+        separator,
+        recentButton
+      );
+    
+      header.append(title, controls);
+      headerRow.append(header);
+    
+      return;
+    }
+
 
     const button = document.createElement("button");
     button.type = "button";
@@ -1824,7 +2186,12 @@ function injectEnhancedTable(groupedRoles, parsedRows) {
   groupedRoles.forEach(role => {
     const group = document.createElement("tbody");
     group.className = "mal-role-group";
+    group.dataset.characterName = role.characterName.toLocaleLowerCase();
+    group.dataset.franchise = role.franchise.toLocaleLowerCase();
     group.dataset.classification = role.classification;
+    group.dataset.favorites = String(role.favorites);
+    group.dataset.appearances = String(role.appearances.length);
+    group.dataset.spanMonths = String(role.spanMonths);	
 	
     const roleRow = document.createElement("tr");
     roleRow.className = "mal-role-row";
@@ -1865,8 +2232,59 @@ function injectEnhancedTable(groupedRoles, parsedRows) {
     container,
     originalTable
   );
+  
+  freezeInitialColumnWidths(table);
+
 }
 
+function createAlphabeticalHeaderButton(
+  labelText,
+  datasetKey
+) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className =
+    "mal-alphabetical-header-button " +
+    "mal-order-control";
+  
+  button.dataset.sortKey = datasetKey;
+  button.dataset.sortDirection = "";
+
+  const label = document.createElement("span");
+  label.textContent = labelText;
+  label.className = "mal-order-label";
+  
+  const indicator = document.createElement("span");
+  indicator.className =
+    "mal-alphabetical-sort-indicator " +
+    "mal-order-indicator";
+  
+  indicator.textContent = " ▲";
+  indicator.setAttribute("aria-hidden", "true");
+
+  button.append(label, indicator);
+
+  return button;
+}
+
+function createHeaderModeButton(label, symbol) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "mal-header-mode-button mal-order-control";
+  
+  const text = document.createElement("span");
+  text.textContent = label;
+  text.className = "mal-order-label";
+
+  const indicator = document.createElement("span");
+  indicator.className = "mal-header-mode-indicator mal-order-indicator";
+  indicator.textContent = symbol;
+  indicator.setAttribute("aria-hidden", "true");
+
+  button.append(text, indicator);
+
+  return button;
+}
 
 function renderCharacterCell(role, cell) {
   const wrapper = document.createElement("div");
@@ -1881,15 +2299,32 @@ function renderCharacterCell(role, cell) {
   const textWrapper = document.createElement("div");
   textWrapper.className = "mal-character-text";
 
+  const characterLine = document.createElement("div");
+  characterLine.className = "mal-character-line";
+  
   const characterLink = document.createElement("a");
+  characterLink.className = "mal-character-name";
   characterLink.href = role.characterUrl;
   characterLink.textContent = role.characterName;
+  
+  const sep = document.createElement("span");
+  sep.className = "mal-character-separator";
+  sep.textContent = "•";
+  const classification = document.createElement("span");
+  classification.className = "mal-character-classification";
+  classification.textContent = role.classification;
+  
+const roleInfo = document.createElement("span");
+roleInfo.className = "mal-character-role-info";
 
+  roleInfo.append(sep, classification);
+  characterLine.append(characterLink,roleInfo);  
+  
   const franchise = document.createElement("div");
   franchise.className = "mal-character-franchise";
   franchise.textContent = role.franchise;
-
-  textWrapper.append(characterLink, franchise);
+  
+  textWrapper.append(characterLine, franchise);
   wrapper.append(portrait, textWrapper);
   cell.append(wrapper);
 }
@@ -1932,10 +2367,129 @@ function renderAppearancesCell(role, cell) {
 }
 
 
-function renderPeriodCell(role, appearance) {
-  role.textContent = formatAppearancePeriod(appearance);
+function renderPopularityCell(role, cell) {
+
+  //  favorites info
+  const favoritesValue = document.createElement("span");
+  favoritesValue.className = "mal-popularity-value";
+  favoritesValue.textContent = role.favorites.toLocaleString();
+
+  const favoritesLabel = document.createElement("span");
+  favoritesLabel.className = "mal-popularity-label";
+  favoritesLabel.textContent = 
+    role.favorites < 2
+	  ? " Favorite: "
+	  : " Favorites: ";
+
+  // appearances info
+  const appearancesValue = document.createElement("span");
+  appearancesValue.className = "mal-popularity-value";
+  appearancesValue.textContent = role.appearances.length.toLocaleString();
+
+  const appearancesLabel = document.createElement("span");
+  appearancesLabel.className = "mal-popularity-label";
+  appearancesLabel.textContent =
+    role.appearances.length === 1
+      ? " appearance "
+      : " appearances ";
+
+  // span info
+  const spanString = formatDuration(role.firstAppearance.dateSort,role.latestAppearance.dateSort)
+  const [number, unit] = spanString.split(" ");
+  
+  const spanValue = document.createElement("strong");
+  spanValue.textContent = number.toString();
+  const spanLabel = document.createElement("span");
+  spanLabel.className = "mal-popularity-label";
+  spanLabel.textContent = "spanning ";
+  const spanLabel2 = document.createElement("span");
+  spanLabel2.className = "mal-popularity-label";
+  spanLabel2.textContent = " " + unit;
+
+  // toggle set-up
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "mal-entries-toggle";
+  toggle.textContent = "show";
+  toggle.setAttribute("aria-expanded", "false");
+  
+  toggle.addEventListener("click", () => {
+    const group = cell.closest(".mal-role-group");
+    const entriesRow = group.querySelector(
+      ".mal-entries-row"
+    );
+  
+    const isExpanded =
+      toggle.getAttribute("aria-expanded") === "true";
+  
+    entriesRow.hidden = isExpanded;
+  
+    toggle.setAttribute(
+      "aria-expanded",
+      String(!isExpanded)
+    );
+  
+    toggle.textContent = isExpanded
+      ? "show"
+      : "hide";
+  });
+
+  // creating lines
+  const favoritesLine = document.createElement("div");
+  favoritesLine.className = "mal-popularity-line mal-popularity-favorites";
+  const appearancesLine = document.createElement("div");
+  appearancesLine.className = "mal-popularity-line mal-popularity-shows";
+  const spanLine = document.createElement("div");
+  spanLine.className = "mal-popularity-line mal-popularity-span";
+  const toggleLine = document.createElement("div");
+  toggleLine.className = "mal-popularity-line mal-popularity-toggle";
+
+  // assembling
+  appearancesLine.append(appearancesValue,appearancesLabel,);
+  spanLine.append(spanLabel,spanValue,spanLabel2);
+  favoritesLine.append(favoritesLabel,favoritesValue,);
+  toggleLine.append(toggle,favoritesLine); 
+
+  const content = document.createElement("div");
+  content.className = "mal-popularity-content";
+  
+  content.append(appearancesLine);
+  if (role.appearances.length > 1) {content.append(spanLine);}
+  content.append(toggleLine);
+  
+  cell.append(content);
 }
 
+
+function renderCareerCell(role, cell) {
+  cell.dataset.firstAppearanceSort = String(
+    appearanceSortValue(role.firstAppearance)
+  );
+  cell.dataset.latestAppearanceSort = String(
+    appearanceSortValue(role.latestAppearance)
+  );
+  const firstLine = document.createElement("div");
+  firstLine.className = "mal-career-first";
+  firstLine.textContent = formatAppearancePeriod(
+    role.firstAppearance
+  );
+
+  const content = document.createElement("div");
+  content.className = "mal-career-content";
+  
+  content.append(firstLine);
+  
+  if (role.appearances.length > 1) {
+    const latestLine = document.createElement("div");
+    latestLine.className = "mal-career-latest";
+    latestLine.textContent =
+      `→ ${formatAppearancePeriod(role.latestAppearance)}`;
+  
+    content.append(latestLine);
+  }
+  
+  cell.append(content);
+}
 
 function renderAppearance(appearance) {
   const line = document.createElement("div");
@@ -1968,31 +2522,698 @@ function appearanceSortValue(appearance) {
   );
 }
 
+function createRoleControl(table) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "mal-role-control";
 
-function formatAppearancePeriod(appearance) {
-  const isTv = appearance.medium === "TV";
+  const display = document.createElement("div");
+  display.className = "mal-role-control-display";
+  
+  const roleOrderButton =
+    document.createElement("button");
+  
+  roleOrderButton.type = "button";
+  
+  roleOrderButton.className =
+    "mal-column-heading " +
+    "mal-role-order-toggle " +
+    "mal-order-control";
+  
+  roleOrderButton.setAttribute(
+    "aria-label",
+    "Toggle role ordering"
+  );
+  
+  const roleTitle = document.createElement("span");
+  roleTitle.textContent = "Role";
+  roleTitle.className = "mal-order-label";
+  
+  const orderIndicator =
+    document.createElement("span");
+  
+  orderIndicator.className =
+    "mal-role-menu-order-indicator " +
+    "mal-order-indicator";
+  
+  orderIndicator.textContent = "▲";
+  orderIndicator.style.visibility = "hidden";
+  orderIndicator.setAttribute(
+    "aria-hidden",
+    "true"
+  );
+  
+  roleOrderButton.append(
+    roleTitle,
+    orderIndicator
+  );
+  
+  const state = document.createElement("span");
+  state.className = "mal-role-control-state";
+  
+  const label = document.createElement("span");
+  label.className = "mal-role-menu-label";
+  label.textContent = "All";
+  
+  state.append(label);
+  display.append(roleOrderButton, state);
+  
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "mal-role-menu-button";
+  button.setAttribute("aria-expanded", "false");
+  button.setAttribute(
+    "aria-label",
+    "Configure role filtering and ordering"
+  );
+  button.textContent = "˅";
 
-  const hasDetailedPeriod =
-    appearance.periodDisplay !== "" &&
-    !/^\d{4}$/.test(appearance.periodDisplay);
+  const menu = document.createElement("div");
+  menu.className = "mal-role-menu";
+  menu.hidden = true;
 
-  if (isTv !== hasDetailedPeriod) {
-    console.warn(
-      "Unexpected medium/period combination; using date_sort.",
+  const filterSection = createRoleFilterSection();
+
+  const orderSection = createRoleMenuSection(
+    "Order",
+    "role-order",
+    [
       {
-        entry: appearance.entryTitle,
-        medium: appearance.medium,
-        periodDisplay: appearance.periodDisplay,
-        dateSort: appearance.dateSort
+        label: "Main first",
+        value: "main-first"
+      },
+      {
+        label: "Supporting first",
+        value: "supporting-first"
+      }
+    ]
+  );
+
+  const sectionSeparator =
+    document.createElement("div");
+  
+  sectionSeparator.className =
+    "mal-role-menu-section-separator";
+  
+  menu.append(
+    filterSection,
+    sectionSeparator,
+    orderSection
+  );
+  wrapper.append(display, button, menu);
+
+  table.dataset.roleFilter = "all";
+  table.dataset.roleOrder = "none";
+
+  button.addEventListener("click", event => {
+    event.stopPropagation();
+
+    const willOpen = menu.hidden;
+
+    menu.hidden = !willOpen;
+
+    button.setAttribute(
+      "aria-expanded",
+      String(willOpen)
+    );
+  });
+
+  menu.addEventListener("click", event => {
+    event.stopPropagation();
+  });
+
+  roleOrderButton.addEventListener(
+    "click",
+    event => {
+      event.stopPropagation();
+  
+      const nextOrder =
+        table.dataset.roleOrder === "main-first"
+          ? "supporting-first"
+          : "main-first";
+  
+      applyRoleOrdering(
+        table,
+        nextOrder,
+        roleOrderButton
+      );
+    }
+  );
+
+  filterSection.addEventListener("change", event => {
+    if (!(event.target instanceof HTMLInputElement)) {
+      return;
+    }
+  
+    applyRoleControl(table);
+    updateRoleControlButton(table, button);
+  });
+
+  orderSection.addEventListener("change", event => {
+    if (!(event.target instanceof HTMLInputElement)) {
+      return;
+    }
+
+    applyRoleOrdering(
+      table,
+      event.target.value,
+      roleOrderButton
+    );
+    
+    updateRoleControlButton(table, button);
+
+    menu.hidden = true;
+    button.setAttribute("aria-expanded", "false");
+  });
+
+  document.addEventListener("click", () => {
+    menu.hidden = true;
+    button.setAttribute("aria-expanded", "false");
+  });
+
+  return wrapper;
+}
+
+function createRoleFilterSection() {
+  const section = document.createElement("fieldset");
+  section.className = "mal-role-menu-section";
+
+  const legend = document.createElement("legend");
+  legend.textContent = "Show";
+
+  section.append(legend);
+
+  const options = [
+    {
+      label: "Main",
+      value: "Main"
+    },
+    {
+      label: "Mixed",
+      value: "Mixed"
+    },
+    {
+      label: "Supporting",
+      value: "Supporting"
+    }
+  ];
+
+  for (const option of options) {
+    const optionLabel = document.createElement("label");
+    optionLabel.className = "mal-role-menu-option";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.name = "role-filter";
+    checkbox.value = option.value;
+    checkbox.checked = true;
+
+    const text = document.createElement("span");
+    text.textContent = option.label;
+
+    optionLabel.append(checkbox, text);
+    section.append(optionLabel);
+  }
+
+  return section;
+}
+
+function createRoleMenuSection(
+  headingText,
+  groupName,
+  options
+) {
+  const section = document.createElement("fieldset");
+  section.className = "mal-role-menu-section";
+
+  const legend = document.createElement("legend");
+  legend.textContent = headingText;
+
+  section.append(legend);
+
+  for (const option of options) {
+    const optionLabel = document.createElement("label");
+    optionLabel.className = "mal-role-menu-option";
+
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = groupName;
+    radio.value = option.value;
+    radio.checked = Boolean(option.checked);
+
+    const text = document.createElement("span");
+    text.textContent = option.label;
+
+    optionLabel.append(radio, text);
+    section.append(optionLabel);
+  }
+
+  return section;
+}
+
+function applyRoleOrdering(
+  table,
+  order,
+  roleOrderButton
+) {
+  table.dataset.roleOrder = order;
+
+  const option = table.querySelector(
+    `input[name="role-order"][value="${order}"]`
+  );
+
+  if (option) {
+    option.checked = true;
+  }
+
+  applyRoleControl(table);
+
+  const direction =
+    order === "main-first"
+      ? "ascending"
+      : "descending";
+
+  activateOrderingControl(
+    table,
+    roleOrderButton,
+    direction
+  );
+}
+
+function applyRoleControl(table) {
+  const visibleClassifications = new Set(
+    Array.from(
+      table.querySelectorAll(
+        'input[name="role-filter"]:checked'
+      )
+    ).map(input => input.value)
+  );
+  
+  const order = table.dataset.roleOrder ?? "none";
+  
+  const groups = Array.from(
+    table.querySelectorAll("tbody.mal-role-group")
+  );
+
+  for (const group of groups) {
+    group.hidden = !visibleClassifications.has(
+      group.dataset.classification
+	);
+  }
+
+  if (
+    order !== "main-first" &&
+    order !== "supporting-first"
+  ) {
+    return;
+  }
+
+  const ranks = order === "main-first"
+    ? {
+        Main: 0,
+        Mixed: 1,
+        Supporting: 2
+      }
+    : {
+        Supporting: 0,
+        Mixed: 1,
+        Main: 2
+      };
+
+  groups.sort((left, right) => {
+    return (
+      ranks[left.dataset.classification] -
+      ranks[right.dataset.classification]
+    );
+  });
+
+  for (const group of groups) {
+    table.append(group);
+  }
+}
+
+
+
+function updateRoleControlButton(table, button) {
+
+  const roleControl = button.closest(".mal-role-control");
+  
+  const label = roleControl.querySelector(
+    ".mal-role-menu-label"
+  );
+  
+  const visibleClassifications = new Set(
+    Array.from(
+      table.querySelectorAll(
+        'input[name="role-filter"]:checked'
+      )
+    ).map(input => input.value)
+  );
+  
+  let filterLabel;
+  
+  if (visibleClassifications.size === 3) {
+    filterLabel = "All";
+  } else if (
+    visibleClassifications.size === 2 &&
+    visibleClassifications.has("Main") &&
+    visibleClassifications.has("Mixed")
+  ) {
+    filterLabel = "Main+";
+  } else if (
+    visibleClassifications.size === 2 &&
+    visibleClassifications.has("Supporting") &&
+    visibleClassifications.has("Mixed")
+  ) {
+    filterLabel = "Supporting+";
+  } else if (
+    visibleClassifications.size === 2 &&
+    visibleClassifications.has("Main") &&
+    visibleClassifications.has("Supporting")
+  ) {
+    filterLabel = "No Mixed";
+  } else if (
+    visibleClassifications.size === 1
+  ) {
+    filterLabel = Array.from(
+      visibleClassifications
+    )[0];
+  } else if (visibleClassifications.size === 0) {
+    filterLabel = "None";
+  } else {
+    filterLabel = "Custom";
+  }
+
+label.textContent = filterLabel;
+
+}
+
+function activateOrderingControl(
+  table,
+  control,
+  direction
+) {
+  if (!table.malOrderingState) {
+    table.malOrderingState = {
+      primary: null,
+      secondary: null,
+      controls: new Set()
+    };
+  }
+
+  const state = table.malOrderingState;
+  state.controls.add(control);
+
+  const indicator = control.querySelector(
+    ".mal-order-indicator"
+  );
+
+  if (!indicator) {
+    throw new Error(
+      "Ordering control has no indicator."
+    );
+  }
+
+  indicator.textContent =
+    direction === "ascending" ? "▲" : "▼";
+
+  if (state.primary !== control) {
+    state.secondary = state.primary;
+    state.primary = control;
+  }
+
+  for (const registeredControl of state.controls) {
+    registeredControl.classList.remove(
+      "mal-primary-order",
+      "mal-secondary-order"
+    );
+
+    registeredControl.setAttribute(
+      "aria-pressed",
+      "false"
+    );
+
+    const registeredIndicator =
+      registeredControl.querySelector(
+        ".mal-order-indicator"
+      );
+
+    if (registeredIndicator) {
+      registeredIndicator.style.visibility =
+        "hidden";
+    }
+  }
+
+  if (state.secondary) {
+    state.secondary.classList.add(
+      "mal-secondary-order"
+    );
+
+    const secondaryIndicator =
+      state.secondary.querySelector(
+        ".mal-order-indicator"
+      );
+
+    if (secondaryIndicator) {
+      secondaryIndicator.style.visibility =
+        "visible";
+    }
+  }
+
+  state.primary.classList.add(
+    "mal-primary-order"
+  );
+
+  state.primary.setAttribute(
+    "aria-pressed",
+    "true"
+  );
+
+  const primaryIndicator =
+    state.primary.querySelector(
+      ".mal-order-indicator"
+    );
+
+  primaryIndicator.style.visibility = "visible";
+}
+
+function applyAlphabeticalSort(
+  table,
+  datasetKey,
+  button
+) {
+  const currentDirection =
+    button.dataset.sortDirection;
+
+  const direction =
+    currentDirection === "ascending"
+      ? "descending"
+      : "ascending";
+
+  const groups = Array.from(
+    table.querySelectorAll(
+      "tbody.mal-role-group"
+    )
+  );
+
+  groups.sort((leftGroup, rightGroup) => {
+    const leftValue =
+      leftGroup.dataset[datasetKey] ?? "";
+
+    const rightValue =
+      rightGroup.dataset[datasetKey] ?? "";
+
+    const result = leftValue.localeCompare(
+      rightValue,
+      undefined,
+      {
+        sensitivity: "base",
+        numeric: true
       }
     );
 
-    return formatDateSort(appearance.dateSort);
+    return direction === "ascending"
+      ? result
+      : -result;
+  });
+
+  for (const group of groups) {
+    table.append(group);
   }
 
-  return appearance.periodDisplay;
+  button.dataset.sortDirection = direction;
+
+  const indicator = button.querySelector(
+    ".mal-alphabetical-sort-indicator"
+  );
+
+  activateOrderingControl(
+    table,
+    button,
+    direction
+  );
 }
 
+function applyPopularitySort(
+  table,
+  datasetKey,
+  buttons,
+  activeButton
+) {
+  const groups = Array.from(
+    table.querySelectorAll(
+      "tbody.mal-role-group"
+    )
+  );
+
+  groups.sort((leftGroup, rightGroup) => {
+    const leftValue = Number(
+      leftGroup.dataset[datasetKey]
+    );
+
+    const rightValue = Number(
+      rightGroup.dataset[datasetKey]
+    );
+
+    return rightValue - leftValue;
+  });
+
+  for (const group of groups) {
+    table.append(group);
+  }
+
+  /*
+   * Clear conventional aria-sort indicators from other
+   * table headers because this custom mode is now active.
+   */
+  for (const header of table.querySelectorAll("thead th")) {
+    header.removeAttribute("aria-sort");
+  }
+  
+  activateOrderingControl(
+    table,
+    activeButton,
+    "descending"
+  );
+}
+
+function applyCareerSort(
+  table,
+  columns,
+  columnIndex,
+  mode,
+  firstButton,
+  recentButton
+) {
+  const groups = table.querySelectorAll("tbody.mal-role-group");
+
+  for (const group of groups) {
+    const cell = group.querySelectorAll(
+      ".mal-role-row td"
+    )[columnIndex];
+
+    cell.dataset.sortValue =
+      mode === "first"
+        ? cell.dataset.firstAppearanceSort
+        : cell.dataset.latestAppearanceSort;
+  }
+
+  const direction =
+    mode === "first"
+      ? "ascending"
+      : "descending";
+
+  sortEnhancedTable(
+    table,
+    columns,
+    columnIndex,
+    direction
+  );
+
+  const activeButton =
+    mode === "first"
+      ? firstButton
+      : recentButton;
+  
+  activateOrderingControl(
+    table,
+    activeButton,
+    direction
+  );
+}
+
+function formatAppearancePeriod(appearance) {
+  const rawDate = String(
+    appearance.dateSort
+  ).padStart(8, "0");
+
+  const year = Number(rawDate.slice(0, 4));
+  const month = Number(rawDate.slice(4, 6));
+  const day = Number(rawDate.slice(6, 8));
+
+  const validSeasonalPeriod =
+    /^(Winter|Spring|Summer|Fall) \d{4}$/.test(
+      appearance.periodDisplay
+    );
+
+  /*
+   * For TV entries, MAL's seasonal period is the preferred
+   * representation.
+   */
+  if (
+    appearance.medium === "TV" &&
+    validSeasonalPeriod
+  ) {
+    return appearance.periodDisplay;
+  }
+
+  const validYearAndMonth =
+    year > 0 &&
+    month >= 1 &&
+    month <= 12;
+
+  /*
+   * For non-TV entries, use an abbreviated month and year
+   * when the hidden date gives enough info.
+   */
+  if (
+    appearance.medium !== "TV" &&
+    validYearAndMonth
+  ) {
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec"
+    ];
+
+    return `${monthNames[month - 1]} ${year}`;
+  }
+
+  /*
+   * Any unexpected or incomplete value remains conspicuous.
+   * formatDateSort() preserves unknown 00 components.
+   */
+  console.warn(
+    "Unexpected or incomplete appearance date; " +
+    "using raw date_sort.",
+    {
+      entry: appearance.entryTitle,
+      medium: appearance.medium,
+      periodDisplay: appearance.periodDisplay,
+      dateSort: appearance.dateSort
+    }
+  );
+
+  return formatDateSort(appearance.dateSort);
+}
 
 function formatDateSort(dateSort) {
   const rawDate = String(dateSort).padStart(8, "0");
@@ -2319,213 +3540,9 @@ function renderMobileAppearance(appearance) {
   return line;
 }
 
-// Styling
-
-function injectEnhancedStyles() {
-  if (document.querySelector("#mal-people-enhancer-styles")) {
-    return;
-  }
-
-  const style = document.createElement("style");
-  style.id = "mal-people-enhancer-styles";
-
-  style.textContent = `
-    #mal-people-enhanced-roles {
-      margin-bottom: 24px;
-    }
-
-    .mal-enhanced-table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-
-    .mal-enhanced-table th,
-    .mal-enhanced-table td {
-      padding: 8px;
-      border: 1px solid;
-      border-color: currentColor;
-      text-align: left;
-      vertical-align: middle;
-    }
-
-    .mal-sort-button {
-      width: 100%;
-      padding: 0;
-      border: 0;
-      background: none;
-      color: inherit;
-      font: inherit;
-      font-weight: bold;
-      text-align: left;
-      cursor: pointer;
-    }
-
-    th[aria-sort="ascending"]
-      .mal-sort-indicator::after {
-      content: "▲";
-    }
-
-    th[aria-sort="descending"]
-      .mal-sort-indicator::after {
-      content: "▼";
-    }
-
-    .mal-character-cell {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .mal-character-portrait {
-      width: 42px;
-      height: 62px;
-      object-fit: cover;
-      flex: 0 0 auto;
-    }
-
-    .mal-entries-toggle {
-      margin-left: 4px;
-      padding: 0;
-      border: 0;
-      background: none;
-      color: inherit;
-      font: inherit;
-      cursor: pointer;
-      text-decoration: underline;
-    }
-
-    .mal-entry-list {
-      display: grid;
-      gap: 4px;
-      padding: 4px 8px;
-    }
-	
-	
-	.mal-character-text {
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-    }
-
-    .mal-character-franchise {
-      margin-top: 3px;
-      font-size: 0.9em;
-      opacity: 0.75;
-    }
-	
-	
-    #mal-mobile-enhanced-roles {
-      margin-bottom: 16px;
-    }
-    
-
-    .mal-mobile-enhanced-header {
-      margin: 0;
-      cursor: pointer;
-    }
-    
-    .mal-mobile-enhanced-header.is-stuck {
-      position: fixed;
-      top: 48px;
-      left: 0;
-      right: 0;
-      z-index: 9998;
-    }	
-	
-    .mal-mobile-summary {
-      margin: 8px 0;
-      font-weight: bold;
-    }
-    
-    .mal-mobile-role-list {
-      display: flex;
-      flex-direction: column;
-    }
-    
-    .mal-mobile-role-card {
-      padding: 2px 0;
-      border-bottom: 1px solid currentColor;
-    }
-    
-    .mal-mobile-role-header {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-    }
-    
-    .mal-mobile-role-header > a {
-      display: block;
-      line-height: 0;
-    }
-    
-    .mal-mobile-character-portrait {
-      display: block;
-      width: 72px;
-      height: 88px;
-      object-fit: cover;
-      flex: 0 0 auto;
-    }
-    
-    .mal-mobile-role-information {
-      min-width: 0;
-      flex: 1;
-      align-self: stretch;
-    
-      display: flex;
-      flex-direction: column;
-	  
-	  font-size: 13px;
-	  line-height: 1.35;
-    }
-    
-    .mal-mobile-character-name {
-      display: block;
-      font-weight: bold;
-      font-size: 1.1em;
-	  line-height: 1.35;
-    }
-    
-    .mal-mobile-role-metadata {
-      margin-top: 3px;
-    }
-    
-    .mal-mobile-franchise {
-      margin-top: 3px;
-      opacity: 0.85;
-      font-size: 1.05em;
-    }
-    
-    .mal-mobile-entries-toggle {
-      align-self: flex-start;
-	  margin-top: auto;
-	  margin-left: 25%;
-	  margin-bottom: 4px;
-	  
-      padding: 0;
-      border: 0;
-      background: none;
-      color: inherit;
-      font: inherit;
-      text-decoration: underline;
-      cursor: pointer;
-    }
-    
-    .mal-mobile-entry-list {
-      margin: 10px 0 0 10px;
-    }
-    
-    .mal-mobile-entry {
-      padding: 4px 0;
-    }
-  `;
-
-  document.head.append(style);
-}
 
 // Main init block
 try {
-  injectEnhancedStyles();
-
   const isMobileLayout = Boolean(
     document.querySelector(
       '#roles .va-slider-container .va-slider-items'
@@ -2555,6 +3572,7 @@ try {
       `${parsedRows.length} appearances.`
     );
   }
+  
 } catch (error) {
   console.error(
     "MAL People Page Enhancer failed:",
