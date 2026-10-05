@@ -3,7 +3,7 @@
 This Firefox add-on improves the presentation on the website [MyAnimeList](https://myanimelist.net/).
 It targets voice actors' list of roles on their people page, e.g. [Rie Kugimiya's page](https://myanimelist.net/people/8/Rie_Kugimiya).
 
-screenshots/before.png → screenshots/after.png
+!screenshots/before.png → !screenshots/after.png
 
 To install it, just download the .xpi at [this link](https://github.com/DeathBurst/MAL_People_Enhancer_FFaddon/releases/download/v1.3/mal_people_page_enhancer-1.3.0.xpi) and accept Firefox pop-up. Future versions should auto-update.
 
